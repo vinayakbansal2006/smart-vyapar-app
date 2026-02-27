@@ -36,6 +36,21 @@ export interface Expense {
   date: string;
 }
 
+export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'BANK';
+export type PaymentStatus = 'COMPLETED' | 'PENDING';
+export type PaymentType = 'RECEIVED' | 'PAID';
+
+export interface Payment {
+  id: string;
+  party: string;
+  amount: number;
+  type: PaymentType;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  note?: string;
+  date: string;
+}
+
 export interface BusinessConnection {
   id: string;
   businessId: string;
@@ -57,6 +72,7 @@ export interface SKU {
   minThreshold: number;
   lastUpdated: string;
   status: 'OPTIMAL' | 'LOW' | 'EXCESS' | 'CRITICAL';
+  expiryDate?: string; // ISO date string e.g. "2026-03-15"
 }
 
 export interface AIInsight {
@@ -100,6 +116,8 @@ export interface AppState {
   inventory: SKU[];
   movementLogs: StockLog[];
   expenses: Expense[];
+  payments: Payment[];
+  budget: number;
   connections: BusinessConnection[];
   landingCompleted: boolean;
   signupCompleted: boolean;

@@ -200,6 +200,166 @@
 
       /* ── Tailwind font override ── */
       .font-display { font-family: 'Space Grotesk', sans-serif; }
+
+      /* ═══════════════════════════════════════════════════════
+         VYAPARIKA — FUTURISTIC SPLASH SCREEN
+      ═══════════════════════════════════════════════════════ */
+
+      /* Animated grid scrolling */
+      @keyframes splash-grid-move {
+        0%   { background-position: 0 0; }
+        100% { background-position: 48px 48px; }
+      }
+      @keyframes splash-grid-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.55; }
+      }
+
+      /* Ambient floating particle drift */
+      @keyframes splash-pfloat {
+        0%, 100% { transform: translateY(0px) translateX(0px) scale(1);   opacity: 0.35; }
+        33%       { transform: translateY(-14px) translateX(6px) scale(1.3); opacity: 0.6; }
+        66%       { transform: translateY(8px) translateX(-5px) scale(0.9);  opacity: 0.25; }
+      }
+
+      /* Scanning line sweep */
+      @keyframes splash-scan {
+        0%   { top: -6px;  opacity: 0; }
+        8%   { opacity: 1; }
+        92%  { opacity: 1; }
+        100% { top: calc(100% + 6px); opacity: 0; }
+      }
+      @keyframes splash-scan-glow {
+        0%   { top: -30px; opacity: 0; }
+        8%   { opacity: 1; }
+        92%  { opacity: 0.7; }
+        100% { top: calc(100% + 30px); opacity: 0; }
+      }
+
+      /* Title text flicker after assembly */
+      @keyframes splash-flicker {
+        0%, 100% { opacity: 1; }
+        94%  { opacity: 1; }
+        95%  { opacity: 0.7; }
+        96%  { opacity: 1; }
+        98%  { opacity: 0.85; }
+        99%  { opacity: 1; }
+      }
+
+      /* Loading progress bar shine */
+      @keyframes splash-bar-shine {
+        0%   { background-position: -200% center; }
+        100% { background-position: 200% center; }
+      }
+
+      /* Corner bracket pulse */
+      @keyframes splash-corner-pulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 1; }
+      }
+
+      /* Orbit ring spin */
+      @keyframes splash-orbit {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
+      }
+      @keyframes splash-orbit-rev {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(-360deg); }
+      }
+
+      /* Zoom-out exit */
+      @keyframes splash-exit {
+        0%   { transform: scale(1);    opacity: 1; }
+        100% { transform: scale(0.88); opacity: 0; }
+      }
+
+      /* ── Grid layer ── */
+      .splash-grid {
+        background-image:
+          linear-gradient(rgba(0,212,255,0.09) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0,212,255,0.09) 1px, transparent 1px);
+        background-size: 48px 48px;
+        animation:
+          splash-grid-move  6s linear infinite,
+          splash-grid-pulse 4s ease-in-out infinite;
+      }
+
+      /* ── Vignette overlay so grid fades at edges ── */
+      .splash-vignette {
+        background: radial-gradient(ellipse 80% 75% at 50% 50%, transparent 40%, #060d1f 100%);
+      }
+
+      /* ── Floating ambient particles ── */
+      .splash-pf {
+        animation: splash-pfloat 4s ease-in-out infinite;
+      }
+
+      /* ── Scanning line ── */
+      .splash-scan-line {
+        position: absolute;
+        left: -10%;
+        width: 120%;
+        height: 2px;
+        background: linear-gradient(90deg,
+          transparent 0%,
+          rgba(0,212,255,0.4) 15%,
+          #00d4ff 50%,
+          rgba(0,212,255,0.4) 85%,
+          transparent 100%);
+        box-shadow: 0 0 10px rgba(0,212,255,1), 0 0 28px rgba(0,212,255,0.5);
+        animation: splash-scan 0.72s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+        top: -6px;
+      }
+      .splash-scan-glow {
+        position: absolute;
+        left: -10%;
+        width: 120%;
+        height: 28px;
+        background: linear-gradient(180deg, rgba(0,212,255,0.18) 0%, transparent 100%);
+        animation: splash-scan-glow 0.72s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+        top: -30px;
+      }
+
+      /* ── Title neon flicker after scan ── */
+      .splash-title-scanned {
+        animation: splash-flicker 3s ease-in-out infinite;
+      }
+
+      /* ── Progress bar shimmer ── */
+      .splash-bar-shimmer {
+        background: linear-gradient(90deg,
+          #00d4ff 0%, #7c3aed 40%, #00d4ff 60%, #7c3aed 100%);
+        background-size: 200% auto;
+        animation: splash-bar-shine 1.6s linear infinite;
+      }
+
+      /* ── Corner brackets ── */
+      .splash-corner {
+        position: absolute;
+        width: 22px;
+        height: 22px;
+        border-color: rgba(0,212,255,0.55);
+        border-style: solid;
+        animation: splash-corner-pulse 2s ease-in-out infinite;
+      }
+      .splash-corner-tl { top: 28px; left: 28px;  border-width: 2px 0 0 2px; }
+      .splash-corner-tr { top: 28px; right: 28px;  border-width: 2px 2px 0 0; }
+      .splash-corner-bl { bottom: 28px; left: 28px;  border-width: 0 0 2px 2px; }
+      .splash-corner-br { bottom: 28px; right: 28px;  border-width: 0 2px 2px 0; }
+
+      /* ── Orbit rings around logo icon ── */
+      .splash-ring-outer {
+        animation: splash-orbit 5s linear infinite;
+      }
+      .splash-ring-inner {
+        animation: splash-orbit-rev 3.5s linear infinite;
+      }
+
+      /* ── Exit animation ── */
+      .splash-do-exit {
+        animation: splash-exit 0.65s cubic-bezier(0.4, 0, 1, 1) forwards;
+      }
     </style>
   </head>
 
