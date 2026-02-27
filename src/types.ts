@@ -1,0 +1,109 @@
+
+export enum UserRole {
+  RETAILER = 'RETAILER',
+  DISTRIBUTOR = 'DISTRIBUTOR',
+  MANUFACTURER = 'MANUFACTURER'
+}
+
+export enum ShopType {
+  GROCERY = 'GROCERY',
+  ELECTRONICS = 'ELECTRONICS'
+}
+
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+export type LanguageCode = 
+  | 'EN' | 'HI' | 'AS' | 'BN' | 'BRX' | 'DOI' | 'GU' | 'KN' | 'KS' | 'KOK' 
+  | 'MAI' | 'ML' | 'MNI' | 'MR' | 'NE' | 'OR' | 'PA' | 'SA' | 'SAT' | 'SD' | 'TA' | 'TE' | 'UR';
+
+export type MovementType = 'IN' | 'OUT';
+
+export interface StockLog {
+  id: string;
+  skuId: string;
+  type: MovementType;
+  quantity: number;
+  price?: number;
+  reason: string;
+  timestamp: string;
+}
+
+export interface Expense {
+  id: string;
+  category: string;
+  amount: number;
+  description: string;
+  date: string;
+}
+
+export interface BusinessConnection {
+  id: string;
+  businessId: string;
+  name: string;
+  role: UserRole;
+  status: 'PENDING' | 'CONNECTED';
+}
+
+export interface SKU {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  price: number;
+  openingStock: number;
+  totalIn: number;
+  totalOut: number;
+  currentStock: number;
+  minThreshold: number;
+  lastUpdated: string;
+  status: 'OPTIMAL' | 'LOW' | 'EXCESS' | 'CRITICAL';
+}
+
+export interface AIInsight {
+  skuId: string;
+  action: string;
+  quantity: string;
+  reason: string;
+  impact: string;
+}
+
+export interface UserProfile {
+  id: string; // Merchant/Dist/Retailer ID
+  name: string;
+  phone: string;
+  email: string;
+  password?: string;
+  shopName: string;
+  gstin?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  businessCategory?: string;
+  establishedYear?: string;
+  bioAuthEnabled: boolean;
+  notificationsEnabled: boolean;
+}
+
+export interface AppState {
+  isLoggedIn: boolean;
+  role?: UserRole;
+  shopType?: ShopType;
+  language: LanguageCode;
+  themeMode: ThemeMode;
+  location?: {
+    state: string;
+    city: string;
+    lat: number;
+    lng: number;
+  };
+  cashPrivacyMode: boolean;
+  inventory: SKU[];
+  movementLogs: StockLog[];
+  expenses: Expense[];
+  connections: BusinessConnection[];
+  landingCompleted: boolean;
+  signupCompleted: boolean;
+  onboarded: boolean;
+  onboardingStep: number;
+  profile: UserProfile;
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Vyaparika - AI Inventory Intelligence",
+  "description": "Production-ready inventory, expenses, and business networking for Indian retailers, distributors, and manufacturers.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
