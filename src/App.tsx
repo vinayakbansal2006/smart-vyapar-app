@@ -9,11 +9,76 @@ import {
   BarChart3, Map as MapIcon, Layers, Scan, RefreshCw, Briefcase, Mail, Phone,
   Building2, Calendar, FileText, MapPinned, CreditCard, KeyRound, ArrowLeft,
   Store, Navigation, Trash2, Zap, Eye, EyeOff, Fingerprint, Shield, Star,
-  ArrowRight, ChevronLeft
+  ArrowRight, ChevronLeft, UserPlus, Users, SlidersHorizontal, UserCheck, Clock, Link2, ExternalLink
 } from 'lucide-react';
 import { UserRole, ShopType, LanguageCode, SKU, AppState, UserProfile, StockLog, MovementType, ThemeMode, Expense, BusinessConnection, Payment, PaymentMethod, PaymentType, PaymentStatus } from './types';
 import { TRANSLATIONS, CATEGORIES, UNITS, INDIAN_LANGUAGES, EXPENSE_CATEGORIES } from './constants';
 import { getInventoryInsights, predictSKUMetadata, identifyProductFromImage, SKUPrediction } from './services/geminiService';
+import { useGeolocation } from './hooks/useGeolocation';
+import { signInWithGoogle, sendPhoneOtp, verifyPhoneOtp, upsertUserProfile, onAuthStateChange, getSession, signOut } from './services/authService';
+import LoginPage from './components/auth/LoginPage';
+import {
+  followBusiness as connectionsServiceFollow,
+  acceptConnection as connectionsServiceAccept,
+  unfollowBusiness as connectionsServiceUnfollow,
+  fetchConnections as connectionsServiceFetchConnections,
+  searchBusinesses as connectionsServiceSearch,
+  fetchProfilesByIds as connectionsServiceFetchProfiles,
+  subscribeToConnections as connectionsServiceSubscribe,
+  fetchRecommendedBusinesses as connectionsServiceRecommend,
+} from './services/connectionsService';
+import {
+  fetchExpenses as expensesServiceFetch,
+  addExpense as expensesServiceAdd,
+  deleteExpense as expensesServiceDelete,
+  subscribeToExpenses as expensesServiceSubscribe,
+} from './services/expensesService';
+import {
+  subscribeToConnectionNotifications,
+  subscribeToExpenseNotifications,
+  checkStockNotifications,
+  type AppNotification,
+} from './services/notificationService';
+
+// --- Error Boundary — catches runtime crashes in child components ---
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[Vyaparika] Uncaught error:', error, info.componentStack);
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback ?? (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-6">
+          <div className="text-center max-w-md space-y-4">
+            <div className="w-16 h-16 rounded-3xl mx-auto flex items-center justify-center" style={{ background: 'rgba(244,63,94,0.1)' }}>
+              <AlertTriangle className="w-8 h-8 text-rose-500" />
+            </div>
+            <h2 className="text-xl font-black text-slate-800 dark:text-white">Something went wrong</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">{this.state.error?.message || 'An unexpected error occurred.'}</p>
+            <button
+              onClick={() => { this.setState({ hasError: false, error: null }); }}
+              className="px-6 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // --- Global UI Components ---
 
@@ -228,6 +293,20 @@ const removeLoginRecord = (email?: string, businessName?: string, roleId?: UserR
   localStorage.setItem('vyaparika_last_logins', JSON.stringify(updated));
 };
 
+// --- ONE-TIME DATA WIPE (remove this block after first load) ---
+(() => {
+  if (!localStorage.getItem('vyaparika_wiped_v1')) {
+    localStorage.removeItem('vyaparika_accounts');
+    localStorage.removeItem('vyaparika_last_logins');
+    localStorage.removeItem('vyaparika_state_v2');
+    localStorage.removeItem('vyaparika_state_v1.6');
+    localStorage.removeItem('vyaparika_state_v1.7');
+    localStorage.setItem('vyaparika_wiped_v1', '1');
+    console.log('[Vyaparika] All login data cleared.');
+  }
+})();
+// --- END ONE-TIME WIPE ---
+
 // --- Account Registry ---
 const STATE_KEY = 'vyaparika_state_v2';
 const ACCOUNTS_KEY = 'vyaparika_accounts';
@@ -252,8 +331,15 @@ const saveAccount = (account: AccountRecord) => {
   localStorage.setItem(ACCOUNTS_KEY, JSON.stringify([...existing, account]));
 };
 
-const deleteAccountFromRegistry = (email: string) => {
-  const updated = getAccounts().filter(a => a.email !== email && a.appId !== email);
+const deleteAccountFromRegistry = (identifier: string) => {
+  if (!identifier) return; // Safety: don't delete anything if identifier is empty
+  const before = getAccounts();
+  const updated = before.filter(a => {
+    // Only remove the account that matches this specific identifier
+    if (a.email === identifier) return false;
+    if (a.appId === identifier) return false;
+    return true;
+  });
   localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(updated));
 };
 
@@ -276,6 +362,7 @@ const AuthFlow: React.FC<{ onAuthSuccess: (method: string, data?: any) => void, 
   const [confirmPwd, setConfirmPwd] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -328,12 +415,45 @@ const AuthFlow: React.FC<{ onAuthSuccess: (method: string, data?: any) => void, 
     }, 1000);
   };
 
-  const handleMobileContinue = () => { if (phone.length === 10) setStep('otp'); };
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    setAuthError('');
+    try {
+      await signInWithGoogle();
+      // Redirect happens — the onAuthStateChange listener in App picks up the session
+    } catch (err: any) {
+      setAuthError(err?.message || 'Google sign-in failed. Please try again.');
+      setGoogleLoading(false);
+    }
+  };
 
-  const handleVerifyOtp = () => {
-    if (otp.length === 6) {
-      setLoading(true);
-      setTimeout(() => { setLoading(false); onAuthSuccess('mobile', { phone, role: selectedRole }); }, 1500);
+  const handleMobileContinue = async () => {
+    if (phone.length !== 10) return;
+    setLoading(true);
+    setAuthError('');
+    try {
+      await sendPhoneOtp('+91' + phone);
+      setStep('otp');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Failed to send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (otp.length !== 6) return;
+    setLoading(true);
+    setAuthError('');
+    try {
+      const { userId, phone: verifiedPhone } = await verifyPhoneOtp('+91' + phone, otp);
+      // Save phone number to Supabase user_profiles table
+      await upsertUserProfile({ id: userId, phone: verifiedPhone });
+      setLoading(false);
+      onAuthSuccess('mobile', { phone: verifiedPhone, role: selectedRole });
+    } catch (err: any) {
+      setAuthError(err?.message || 'Invalid OTP. Please try again.');
+      setLoading(false);
     }
   };
 
@@ -489,6 +609,31 @@ const AuthFlow: React.FC<{ onAuthSuccess: (method: string, data?: any) => void, 
                 className="w-full h-[56px] rounded-2xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.1] hover:border-white/[0.2] font-black text-[15px] text-white flex items-center justify-center gap-3 transition-all active:scale-[0.98] backdrop-blur-sm">
                 <Star className="w-5 h-5 text-amber-400" /> Create New Account
               </button>
+
+              {/* Continue with Google */}
+              <button onClick={handleGoogleSignIn} disabled={googleLoading}
+                className="w-full h-[56px] rounded-2xl bg-white hover:bg-gray-50 border border-gray-200 font-black text-[15px] text-gray-700 flex items-center justify-center gap-3 transition-all active:scale-[0.98] relative overflow-hidden group">
+                {googleLoading ? (
+                  <Loader2 className="animate-spin w-5 h-5 text-gray-500" />
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                    </svg>
+                    Continue with Google
+                  </>
+                )}
+              </button>
+
+              {/* Divider */}
+              <div className="relative flex items-center gap-3 py-0.5">
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">or</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+              </div>
 
               {/* Mobile OTP */}
               <button onClick={() => setStep('mobile')} disabled={loading}
@@ -879,7 +1024,7 @@ const AuthFlow: React.FC<{ onAuthSuccess: (method: string, data?: any) => void, 
 // --- Settings Module Enhancement ---
 
 // --- Admin Module (replaces Settings) ---
-const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.SetStateAction<AppState>>, t: any, onDeleteAccount?: () => void }> = ({ state, setState, t, onDeleteAccount }) => {
+const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.SetStateAction<AppState>>, t: any, onDeleteAccount?: () => void, onLogout?: () => void }> = ({ state, setState, t, onDeleteAccount, onLogout }) => {
   const [activeSubTab, setActiveSubTab] = useState('profile');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   // Settings sub-state
@@ -900,7 +1045,11 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
     setState(s => ({ ...s, profile: { ...s.profile, ...updates } }));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (onLogout) {
+      await onLogout();
+      return;
+    }
     saveLoginRecord({
       businessName: state.profile.shopName || 'Business Account',
       roleName: (state.role as string) || 'Business',
@@ -909,6 +1058,8 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
       timestamp: new Date().toISOString(),
       email: state.profile.email || undefined
     });
+    // Clear Supabase session
+    try { await signOut(); } catch { /* ignore */ }
     setState(s => ({
       ...s,
       isLoggedIn: false,
@@ -1266,19 +1417,26 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
               <p className="font-black text-rose-700 dark:text-rose-400 text-base uppercase tracking-wide text-sm">Danger Zone</p>
             </div>
             <p className="text-sm text-rose-600/80 font-semibold">Deleting your account is permanent and cannot be undone. All your data will be lost.</p>
+            <p className="text-xs text-rose-500/60 font-semibold">To change your role (Manufacturer / Distributor / Shopkeeper), delete this account and create a new one.</p>
             {showDeleteConfirm ? (
               <div className="space-y-3">
                 <p className="font-black text-rose-700 text-sm">Are you sure? This cannot be undone.</p>
                 <div className="flex gap-3">
                   <Button variant="danger" className="flex-1 h-11" onClick={() => {
-                    // Remove account from registry (credentials)
-                    if (state.profile.email) deleteAccountFromRegistry(state.profile.email);
+                    // Remove this specific account from registry (credentials)
+                    const email = state.profile.email;
+                    const profileId = state.profile.id;
+                    if (email) deleteAccountFromRegistry(email);
+                    // Also try to delete by profile.id (which stores appId)
+                    if (profileId && profileId !== email) deleteAccountFromRegistry(profileId);
                     // Remove this business from quick login records
-                    removeLoginRecord(state.profile.email || undefined, state.profile.shopName || undefined, state.role as UserRole);
-                    // Wipe all app storage keys
+                    removeLoginRecord(email || undefined, state.profile.shopName || undefined, state.role as UserRole);
+                    // Wipe all app storage keys (state only, NOT accounts registry)
                     localStorage.removeItem(STATE_KEY);
                     localStorage.removeItem('vyaparika_state_v1.6');
                     localStorage.removeItem('vyaparika_state_v1.7');
+                    // Also clear the last logins for this account
+                    localStorage.removeItem('vyaparika_last_logins');
                     // Fully reset state — wipe all data
                     setState(s => ({
                       ...s,
@@ -1293,7 +1451,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
                       payments: [],
                       budget: 0,
                       connections: [],
-                      profile: { ...s.profile, name: '', phone: '', email: '', shopName: '', city: '', state: '', businessCategory: '', establishedYear: '', gstin: '', address: '' }
+                      profile: { ...s.profile, id: 'MER-' + Math.random().toString(36).substr(2, 9).toUpperCase(), name: '', phone: '', email: '', shopName: '', city: '', state: '', businessCategory: '', establishedYear: '', gstin: '', address: '' }
                     }));
                     // Refresh quick login list in parent
                     if (onDeleteAccount) onDeleteAccount();
@@ -1320,6 +1478,13 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
   const [city, setCity] = useState(state.profile.city || '');
   const [stateVal, setStateVal] = useState(state.profile.state || '');
   const [address, setAddress] = useState(state.profile.address || '');
+
+  // Sync local fields when geolocation auto-fills profile in state
+  useEffect(() => {
+    if (state.profile.city && !city) setCity(state.profile.city);
+    if (state.profile.state && !stateVal) setStateVal(state.profile.state);
+    if (state.profile.address && !address) setAddress(state.profile.address);
+  }, [state.profile.city, state.profile.state, state.profile.address]);
 
   const canSave = name.trim() && phone.trim() && phone.replace(/\D/g,'').length >= 10 && city.trim();
 
@@ -1445,9 +1610,108 @@ export default function App() {
       signupCompleted: false,
       onboarded: false,
       onboardingStep: 1,
-      profile: defaultProfile
+      profile: defaultProfile,
+      geolocationStatus: 'idle',
+      nearestStores: []
     };
   });
+
+  // --- Geolocation detection (fires once after login) ---
+  useGeolocation(state, setState);
+
+  // Track explicit logouts so Supabase listener doesn't re-login
+  const loggedOutRef = useRef(false);
+
+  const handleAppLogout = async () => {
+    loggedOutRef.current = true;
+    saveLoginRecord({
+      businessName: state.profile.shopName || 'Business Account',
+      roleName: (state.role as string) || 'Business',
+      roleId: state.role as UserRole,
+      loginMethod: 'email',
+      timestamp: new Date().toISOString(),
+      email: state.profile.email || undefined,
+    });
+    // Update state immediately FIRST so the UI switches to LoginPage
+    setState(s => {
+      const newState = {
+        ...s,
+        isLoggedIn: false,
+        landingCompleted: false,
+        onboarded: false,
+        onboardingStep: 1,
+      };
+      // Persist logged-out state to localStorage right away
+      localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+      return newState;
+    });
+    // Then clean up Supabase session in the background (non-blocking)
+    try { await signOut(); } catch { /* ignore */ }
+  };
+
+  // --- Supabase auth state listener (handles Google OAuth redirect) ---
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = onAuthStateChange(async (event, session) => {
+        // Don't re-login if user explicitly logged out
+        if (loggedOutRef.current) return;
+        if (event === 'SIGNED_IN' && session?.user) {
+          const user = session.user;
+          const meta = user.user_metadata || {};
+          // Persist user profile to Supabase (non-blocking, ignore errors)
+          try {
+            await upsertUserProfile({
+              id: user.id,
+              email: user.email,
+              phone: user.phone,
+              name: meta.full_name || meta.name,
+              avatar_url: meta.avatar_url || meta.picture,
+            });
+          } catch { /* Supabase may be down — continue without it */ }
+          // Update local app state
+          setState(s => {
+            if (s.isLoggedIn) return s; // Already logged in, skip
+            return {
+              ...s,
+              isLoggedIn: true,
+              profile: {
+                ...s.profile,
+                id: user.id,
+                email: user.email || s.profile.email,
+                phone: user.phone || s.profile.phone,
+                name: meta.full_name || meta.name || s.profile.name,
+              },
+            };
+          });
+        }
+      });
+    } catch {
+      console.warn('[Vyaparika] Supabase auth listener failed — running in offline mode.');
+    }
+    // Also check for an existing session on mount (e.g. after OAuth redirect)
+    getSession().then(session => {
+      if (loggedOutRef.current) return;
+      if (session?.user && !state.isLoggedIn) {
+        const user = session.user;
+        const meta = user.user_metadata || {};
+        setState(s => ({
+          ...s,
+          isLoggedIn: true,
+          profile: {
+            ...s.profile,
+            id: user.id,
+            email: user.email || s.profile.email,
+            phone: user.phone || s.profile.phone,
+            name: meta.full_name || meta.name || s.profile.name,
+          },
+        }));
+      }
+    }).catch(() => {
+      console.warn('[Vyaparika] Supabase getSession failed — running in offline mode.');
+    });
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [isSplashActive, setIsSplashActive] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -1461,6 +1725,52 @@ export default function App() {
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<SKU | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Real-time notifications ──
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const addNotification = useCallback((notif: AppNotification) => {
+    setNotifications(prev => {
+      // Prevent duplicates
+      if (prev.some(n => n.id === notif.id)) return prev;
+      return [notif, ...prev].slice(0, 50); // keep latest 50
+    });
+  }, []);
+
+  // Subscribe to real-time notifications from Supabase
+  useEffect(() => {
+    if (!state.isLoggedIn || !state.profile.id) return;
+    const myId = state.profile.id;
+
+    const unsubConn = subscribeToConnectionNotifications(myId, addNotification);
+    const unsubExp = subscribeToExpenseNotifications(myId, addNotification);
+
+    return () => { unsubConn(); unsubExp(); };
+  }, [state.isLoggedIn, state.profile.id, addNotification]);
+
+  // Check stock-level notifications whenever inventory changes — batched into single update
+  useEffect(() => {
+    if (!state.isLoggedIn || state.inventory.length === 0) return;
+    const stockNotifs = checkStockNotifications(state.inventory);
+    if (stockNotifs.length === 0) return;
+    setNotifications(prev => {
+      const existingIds = new Set(prev.map(n => n.id));
+      const newOnes = stockNotifs.filter(n => !existingIds.has(n.id));
+      if (newOnes.length === 0) return prev;
+      return [...newOnes, ...prev].slice(0, 50);
+    });
+  }, [state.inventory, state.isLoggedIn]);
+
+  const markAllRead = useCallback(() => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  }, []);
+
+  const clearNotifications = useCallback(() => {
+    setNotifications([]);
+    setShowNotifPanel(false);
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -1519,37 +1829,148 @@ export default function App() {
   return () => media.removeEventListener('change', listener);
 }, [state.themeMode]);
 
+  // Debounced localStorage save — avoids blocking main thread on every keystroke
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   useEffect(() => {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      try { localStorage.setItem(STATE_KEY, JSON.stringify(stateRef.current)); } catch { /* quota exceeded — ignore */ }
+    }, 500);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [state]);
 
   const t = TRANSLATIONS[state.language] || TRANSLATIONS['EN'];
 
   const [lastLogins, setLastLogins] = useState<LoginRecord[]>(() => getLastLogins());
 
-  const handleAuthSuccess = (method: string, data?: any) => {
+  const handleAuthSuccess = useCallback((method: string, data?: any) => {
     const preRole = data?.role as UserRole | undefined;
     const preBusinessName = data?.businessName as string | undefined;
+    const isReturning = data?.isReturningUser === true || method === 'quick';
+    const isNew = data?.isNewAccount === true;
     // Refresh lastLogins from storage after quick-login updates
     setLastLogins(getLastLogins());
-    setState(s => ({
-      ...s,
-      isLoggedIn: true,
-      role: preRole || s.role,
-      landingCompleted: preRole ? true : s.landingCompleted,
-      profile: {
-        ...s.profile,
-        phone: data?.phone || s.profile.phone,
-        email: data?.email || s.profile.email,
-        shopName: preBusinessName || s.profile.shopName
+    setState(s => {
+      // For returning users (App ID login) — skip everything, go straight to dashboard
+      if (isReturning) {
+        return {
+          ...s,
+          isLoggedIn: true,
+          role: preRole || s.role,
+          landingCompleted: true,
+          signupCompleted: true,
+          onboarded: true,
+          onboardingStep: 4,
+          profile: {
+            ...s.profile,
+            id: data?.appId || s.profile.id,
+            phone: data?.phone || s.profile.phone,
+            email: data?.email || s.profile.email,
+            shopName: preBusinessName || s.profile.shopName,
+            // Ensure profile completeness check passes for returning users
+            name: s.profile.name || data?.email?.split('@')[0] || 'User',
+            city: s.profile.city || 'India',
+          },
+        };
       }
-    }));
-  };
+      // For new signups — all profile data collected in signup form, skip to dashboard
+      if (isNew) {
+        return {
+          ...s,
+          isLoggedIn: true,
+          role: preRole || s.role,
+          landingCompleted: true,
+          signupCompleted: true,
+          onboarded: true,
+          onboardingStep: 4,
+          profile: {
+            ...s.profile,
+            id: data?.appId || s.profile.id,
+            phone: data?.phone || s.profile.phone,
+            email: data?.email || s.profile.email,
+            name: data?.ownerName || s.profile.name,
+            shopName: data?.shopName || s.profile.shopName,
+            city: data?.city || s.profile.city,
+          },
+        };
+      }
+      // For other methods (Google, OTP, quick login) — set role + landing if role known
+      return {
+        ...s,
+        isLoggedIn: true,
+        role: preRole || s.role,
+        landingCompleted: preRole ? true : s.landingCompleted,
+        profile: {
+          ...s.profile,
+          phone: data?.phone || s.profile.phone,
+          email: data?.email || s.profile.email,
+          shopName: preBusinessName || s.profile.shopName,
+        },
+      };
+    });
+  }, []);
+
+  const handleStockUpdate = useCallback((skuId: string, type: MovementType, quantity: number, reason: string) => {
+    setState(s => {
+      const newLogs: StockLog[] = [...s.movementLogs, {
+        id: Math.random().toString(),
+        skuId,
+        type,
+        quantity,
+        reason,
+        timestamp: new Date().toISOString()
+      }];
+      const newInventory = s.inventory.map(item => {
+        if (item.id === skuId) {
+          const totalIn = type === 'IN' ? item.totalIn + quantity : item.totalIn;
+          const totalOut = type === 'OUT' ? item.totalOut + quantity : item.totalOut;
+          const currentStock = item.openingStock + totalIn - totalOut;
+          let status: SKU['status'] = 'OPTIMAL';
+          if (currentStock < item.minThreshold) status = 'LOW';
+          if (currentStock === 0) status = 'CRITICAL';
+          return { ...item, totalIn, totalOut, currentStock, status, lastUpdated: new Date().toISOString() };
+        }
+        return item;
+      });
+      // Auto-generate payment entry from stock movement
+      const sku = s.inventory.find(i => i.id === skuId);
+      const amount = sku ? Math.round(quantity * (sku.price || 0) * 100) / 100 : 0;
+      let autoPayments = [...(s.payments || [])];
+      if (amount > 0) {
+        // Purchase (IN)  → PAID  (money goes out to buy stock)
+        // Sale (OUT)     → RECEIVED (money comes in from selling)
+        // Damage/Expired/Return (OUT) → PAID (loss)
+        const payType: PaymentType = type === 'OUT' && reason === 'Sale' ? 'RECEIVED' : 'PAID';
+        autoPayments = [{
+          id: `pay_stk_${Date.now()}`,
+          party: sku?.name ?? 'Stock',
+          amount,
+          type: payType,
+          method: 'CASH' as PaymentMethod,
+          status: 'COMPLETED' as PaymentStatus,
+          date: new Date().toISOString(),
+          note: `${reason}: ${quantity} ${sku?.unit ?? 'units'} (auto)`,
+        }, ...autoPayments];
+      }
+      return { ...s, inventory: newInventory, movementLogs: newLogs, payments: autoPayments };
+    });
+    setStockUpdateItem(null);
+  }, []);
+
+  const navItems = useMemo(() => [
+    { id: 'dashboard', icon: LayoutDashboard, label: t.dashboard },
+    { id: 'inventory', icon: Package, label: t.inventory },
+    { id: 'expenses', icon: CreditCard, label: t.expenses },
+    { id: 'network', icon: Globe, label: t.connections },
+    { id: 'insights', icon: BrainCircuit, label: t.insights },
+  ], [t.dashboard, t.inventory, t.expenses, t.connections, t.insights]);
 
   if (isSplashActive) return <SplashScreen onFinish={() => setIsSplashActive(false)} />;
 
   // Auth gating
-  if (!state.isLoggedIn) return <AuthFlow onAuthSuccess={handleAuthSuccess} t={t} lastLogins={lastLogins} />;
+  if (!state.isLoggedIn) return <LoginPage onAuthSuccess={handleAuthSuccess} t={t} lastLogins={lastLogins} />;
 
   // Post-auth wizard gating
   if (!state.landingCompleted) return <LandingFlow onComplete={(role) => setState(s => ({ ...s, role, landingCompleted: true, signupCompleted: true }))} t={t} state={state} setState={setState} />;
@@ -1642,61 +2063,6 @@ export default function App() {
     return <ProfileCompleteScreen state={state} setState={setState} />;
   }
 
-  const handleStockUpdate = (skuId: string, type: MovementType, quantity: number, reason: string) => {
-    setState(s => {
-      const newLogs: StockLog[] = [...s.movementLogs, {
-        id: Math.random().toString(),
-        skuId,
-        type,
-        quantity,
-        reason,
-        timestamp: new Date().toISOString()
-      }];
-      const newInventory = s.inventory.map(item => {
-        if (item.id === skuId) {
-          const totalIn = type === 'IN' ? item.totalIn + quantity : item.totalIn;
-          const totalOut = type === 'OUT' ? item.totalOut + quantity : item.totalOut;
-          const currentStock = item.openingStock + totalIn - totalOut;
-          let status: SKU['status'] = 'OPTIMAL';
-          if (currentStock < item.minThreshold) status = 'LOW';
-          if (currentStock === 0) status = 'CRITICAL';
-          return { ...item, totalIn, totalOut, currentStock, status, lastUpdated: new Date().toISOString() };
-        }
-        return item;
-      });
-      // Auto-generate payment entry from stock movement
-      const sku = s.inventory.find(i => i.id === skuId);
-      const amount = sku ? Math.round(quantity * (sku.price || 0) * 100) / 100 : 0;
-      let autoPayments = [...(s.payments || [])];
-      if (amount > 0) {
-        // Purchase (IN)  → PAID  (money goes out to buy stock)
-        // Sale (OUT)     → RECEIVED (money comes in from selling)
-        // Damage/Expired/Return (OUT) → PAID (loss)
-        const payType: PaymentType = type === 'OUT' && reason === 'Sale' ? 'RECEIVED' : 'PAID';
-        autoPayments = [{
-          id: `pay_stk_${Date.now()}`,
-          party: sku?.name ?? 'Stock',
-          amount,
-          type: payType,
-          method: 'CASH' as PaymentMethod,
-          status: 'COMPLETED' as PaymentStatus,
-          date: new Date().toISOString(),
-          note: `${reason}: ${quantity} ${sku?.unit ?? 'units'} (auto)`,
-        }, ...autoPayments];
-      }
-      return { ...s, inventory: newInventory, movementLogs: newLogs, payments: autoPayments };
-    });
-    setStockUpdateItem(null);
-  };
-
-  const navItems = [
-    { id: 'dashboard', icon: LayoutDashboard, label: t.dashboard },
-    { id: 'inventory', icon: Package, label: t.inventory },
-    { id: 'expenses', icon: CreditCard, label: t.expenses },
-    { id: 'network', icon: Globe, label: t.connections },
-    { id: 'insights', icon: BrainCircuit, label: t.insights },
-  ];
-
   return (
     <div className="min-h-screen bg-mesh flex overflow-hidden transition-colors duration-500">
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -1720,9 +2086,14 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="w-11 h-11 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center border-2 border-slate-100 dark:border-slate-700 hover:border-indigo-300 transition-colors relative active:scale-95">
+            <button onClick={() => setShowNotifPanel(!showNotifPanel)} className="w-11 h-11 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center border-2 border-slate-100 dark:border-slate-700 hover:border-indigo-300 transition-colors relative active:scale-95">
               <Bell className="w-5 h-5 text-slate-500" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-[9px] font-black text-white" style={{ background: 'linear-gradient(135deg, #f43f5e, #e11d48)', boxShadow: '0 2px 8px rgba(244,63,94,0.5)' }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+              {unreadCount === 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-slate-300 dark:bg-slate-600 rounded-full" />}
             </button>
             <button onClick={() => setActiveTab('payments')}
               className={`w-11 h-11 rounded-2xl flex items-center justify-center border-2 transition-all overflow-hidden shadow-sm active:scale-95 ${
@@ -1749,6 +2120,74 @@ export default function App() {
           </div>
         </header>
 
+        {/* ── Real-time Notification Panel ── */}
+        {showNotifPanel && (
+          <div className="absolute top-16 right-4 z-50 w-[360px] max-h-[480px] rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+            style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.18)' }}>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}>
+                  <Bell className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-800 dark:text-white">Notifications</h3>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{unreadCount} unread</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} className="px-2.5 py-1 rounded-lg text-[10px] font-black text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">
+                    Mark all read
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button onClick={clearNotifications} className="px-2.5 py-1 rounded-lg text-[10px] font-black text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors">
+                    Clear
+                  </button>
+                )}
+                <button onClick={() => setShowNotifPanel(false)} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[380px] overflow-y-auto">
+              {notifications.length === 0 ? (
+                <div className="py-12 text-center text-slate-400">
+                  <Bell className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                  <p className="font-black text-sm">No notifications</p>
+                  <p className="text-[10px] mt-1">You're all caught up!</p>
+                </div>
+              ) : (
+                notifications.map(notif => {
+                  const icon = notif.type === 'connection' ? '🤝' : notif.type === 'expense' ? '💰' : notif.type === 'stock' ? '📦' : 'ℹ️';
+                  const borderColor = notif.type === 'stock' ? 'border-l-amber-500' : notif.type === 'connection' ? 'border-l-indigo-500' : notif.type === 'expense' ? 'border-l-emerald-500' : 'border-l-slate-400';
+                  return (
+                    <div
+                      key={notif.id}
+                      className={`p-4 border-b border-slate-50 dark:border-slate-800/60 border-l-4 ${borderColor} ${!notif.read ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''} hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors`}
+                      onClick={() => setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n))}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="text-lg mt-0.5">{icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-black text-xs text-slate-800 dark:text-white">{notif.title}</p>
+                            {!notif.read && <span className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />}
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5 line-clamp-2">{notif.message}</p>
+                          <p className="text-[9px] font-bold text-slate-300 dark:text-slate-600 uppercase tracking-widest mt-1.5">
+                            {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} &bull; {new Date(notif.timestamp).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-transparent">
           {showAddPage ? (
             <AddInventoryModule 
@@ -1765,13 +2204,13 @@ export default function App() {
               t={t}
             />
           ) : activeTab === 'admin' ? (
-            <AdminModule state={state} setState={setState} t={t} onDeleteAccount={() => setLastLogins(getLastLogins())} />
+            <ErrorBoundary><AdminModule state={state} setState={setState} t={t} onDeleteAccount={() => setLastLogins(getLastLogins())} onLogout={handleAppLogout} /></ErrorBoundary>
           ) : activeTab === 'expenses' ? (
-            <ExpensesModule state={state} setState={setState} t={t} />
+            <ErrorBoundary><ExpensesModule state={state} setState={setState} t={t} /></ErrorBoundary>
           ) : activeTab === 'network' ? (
-            <NetworkModule state={state} setState={setState} t={t} />
+            <ErrorBoundary><NetworkModule state={state} setState={setState} t={t} /></ErrorBoundary>
           ) : activeTab === 'payments' ? (
-            <PaymentsModule state={state} setState={setState} t={t} />
+            <ErrorBoundary><PaymentsModule state={state} setState={setState} t={t} /></ErrorBoundary>
           ) : (
             <div className="max-w-7xl mx-auto space-y-8 pb-24 sm:pb-8">
               {activeTab === 'dashboard' && (
@@ -1782,20 +2221,30 @@ export default function App() {
                 </>
               )}
               {activeTab === 'inventory' && (() => {
-                const invTotalValue = state.inventory.reduce((s, i) => s + i.currentStock * (i.price || 0), 0);
-                const invAlertCount = state.inventory.filter(i => i.status === 'CRITICAL' || i.status === 'LOW').length;
-                const invExpiringCount = state.inventory.filter(i => {
-                  if (!i.expiryDate) return false;
-                  const d = Math.ceil((new Date(i.expiryDate).getTime() - Date.now()) / 86400000);
-                  return d > 0 && d <= 30;
-                }).length;
-                const uniqueCategories = [...new Set(state.inventory.map(i => i.category))].filter(Boolean).sort() as string[];
+                // Single-pass computation for all inventory stats
+                let invTotalValue = 0;
+                let invAlertCount = 0;
+                let invExpiringCount = 0;
+                const statusCounts: Record<string, number> = { OPTIMAL: 0, LOW: 0, CRITICAL: 0, EXCESS: 0 };
+                const categorySet = new Set<string>();
+                const now = Date.now();
+                for (const i of state.inventory) {
+                  invTotalValue += i.currentStock * (i.price || 0);
+                  if (i.status === 'CRITICAL' || i.status === 'LOW') invAlertCount++;
+                  if (i.status in statusCounts) statusCounts[i.status]++;
+                  if (i.expiryDate) {
+                    const d = Math.ceil((new Date(i.expiryDate).getTime() - now) / 86400000);
+                    if (d > 0 && d <= 30) invExpiringCount++;
+                  }
+                  if (i.category) categorySet.add(i.category);
+                }
+                const uniqueCategories = [...categorySet].sort();
                 const statusFilters = [
-                  { key: 'ALL',     label: 'All Items', count: state.inventory.length,                                color: '#64748b', activeBg: '#1e293b',  activeTxt: '#fff'     },
-                  { key: 'OPTIMAL', label: 'Optimal',   count: state.inventory.filter(i => i.status === 'OPTIMAL').length,  color: '#10b981', activeBg: '#064e3b',  activeTxt: '#6ee7b7'  },
-                  { key: 'LOW',     label: 'Low Stock', count: state.inventory.filter(i => i.status === 'LOW').length,     color: '#f59e0b', activeBg: '#78350f',  activeTxt: '#fcd34d'  },
-                  { key: 'CRITICAL',label: 'Critical',  count: state.inventory.filter(i => i.status === 'CRITICAL').length,  color: '#f43f5e', activeBg: '#4c0519',  activeTxt: '#fda4af'  },
-                  { key: 'EXCESS',  label: 'Excess',    count: state.inventory.filter(i => i.status === 'EXCESS').length,    color: '#6366f1', activeBg: '#1e1b4b',  activeTxt: '#a5b4fc'  },
+                  { key: 'ALL',     label: 'All Items', count: state.inventory.length,    color: '#64748b', activeBg: '#1e293b',  activeTxt: '#fff'     },
+                  { key: 'OPTIMAL', label: 'Optimal',   count: statusCounts.OPTIMAL,      color: '#10b981', activeBg: '#064e3b',  activeTxt: '#6ee7b7'  },
+                  { key: 'LOW',     label: 'Low Stock', count: statusCounts.LOW,           color: '#f59e0b', activeBg: '#78350f',  activeTxt: '#fcd34d'  },
+                  { key: 'CRITICAL',label: 'Critical',  count: statusCounts.CRITICAL,      color: '#f43f5e', activeBg: '#4c0519',  activeTxt: '#fda4af'  },
+                  { key: 'EXCESS',  label: 'Excess',    count: statusCounts.EXCESS,        color: '#6366f1', activeBg: '#1e1b4b',  activeTxt: '#a5b4fc'  },
                 ];
                 const kpis = [
                   { label: 'Total SKUs',      value: String(state.inventory.length),
@@ -2080,6 +2529,17 @@ export default function App() {
 
 // --- Delete Confirm Modal ---
 
+// Static style objects extracted to avoid re-creation on every render
+const DELETE_MODAL_BACKDROP: React.CSSProperties = {
+  position: 'fixed', inset: 0, zIndex: 60,
+  background: 'rgba(15,23,42,0.55)',
+  backdropFilter: 'blur(4px)',
+  WebkitBackdropFilter: 'blur(4px)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: '16px',
+  transition: 'opacity 0.22s ease',
+};
+
 const DeleteConfirmModal: React.FC<{
   item: SKU | null;
   onCancel: () => void;
@@ -2098,15 +2558,9 @@ const DeleteConfirmModal: React.FC<{
     <div
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
       style={{
-        position: 'fixed', inset: 0, zIndex: 60,
-        background: 'rgba(15,23,42,0.55)',
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '16px',
+        ...DELETE_MODAL_BACKDROP,
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none',
-        transition: 'opacity 0.22s ease',
       }}
     >
       <div
@@ -2278,6 +2732,23 @@ const ToastNotification: React.FC<{
 
 // --- Inventory Detail Panel ---
 
+// Static style objects for InventoryDetailPanel — extracted to avoid GC churn
+const DETAIL_BACKDROP_STYLE: React.CSSProperties = {
+  position: 'fixed', inset: 0, zIndex: 45,
+  background: 'rgba(15,23,42,0.40)',
+  backdropFilter: 'blur(3px)',
+  WebkitBackdropFilter: 'blur(3px)',
+  transition: 'opacity 0.24s ease',
+};
+const DETAIL_PANEL_STYLE: React.CSSProperties = {
+  position: 'fixed', top: 0, right: 0, bottom: 0,
+  width: 'min(420px, 95vw)',
+  zIndex: 50,
+  transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1)',
+  display: 'flex', flexDirection: 'column',
+  boxShadow: '-4px 0 40px rgba(0,0,0,0.18)',
+};
+
 const InventoryDetailPanel: React.FC<{
   item: SKU | null;
   movementLogs: StockLog[];
@@ -2316,26 +2787,17 @@ const InventoryDetailPanel: React.FC<{
       <div
         onClick={onClose}
         style={{
-          position: 'fixed', inset: 0, zIndex: 45,
-          background: 'rgba(15,23,42,0.40)',
-          backdropFilter: 'blur(3px)',
-          WebkitBackdropFilter: 'blur(3px)',
+          ...DETAIL_BACKDROP_STYLE,
           opacity: isOpen ? 1 : 0,
           pointerEvents: isOpen ? 'auto' : 'none',
-          transition: 'opacity 0.24s ease',
         }}
       />
 
       {/* Slide-in panel */}
       <div
         style={{
-          position: 'fixed', top: 0, right: 0, bottom: 0,
-          width: 'min(420px, 95vw)',
-          zIndex: 50,
+          ...DETAIL_PANEL_STYLE,
           transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1)',
-          display: 'flex', flexDirection: 'column',
-          boxShadow: '-4px 0 40px rgba(0,0,0,0.18)',
         }}
         className="bg-white dark:bg-slate-900"
       >
@@ -3768,180 +4230,1359 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
   const [desc, setDesc] = useState('');
+  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
+  const [addLoading, setAddLoading] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const total = state.expenses.reduce((acc, curr) => acc + curr.amount, 0);
+  // ── Filters & Sort ──
+  const [searchText, setSearchText] = useState('');
+  const [filterCategory, setFilterCategory] = useState<string>('ALL');
+  const [filterDate, setFilterDate] = useState<string>('');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [catSearch, setCatSearch] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [toast, setToast] = useState<string | null>(null);
+  const catDropdownRef = useRef<HTMLDivElement>(null);
 
-  const addExpense = () => {
-    if (!amount) return;
-    const now = new Date().toISOString();
-    const newExpense: Expense = {
-      id: Math.random().toString(),
-      amount: Number(amount),
-      category,
-      description: desc,
-      date: now,
+  const myId = state.profile.id;
+
+  // Close category dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (catDropdownRef.current && !catDropdownRef.current.contains(e.target as Node)) {
+        setShowCategoryDropdown(false);
+      }
     };
-    const autoPayment: Payment = {
-      id: `pay_exp_${Date.now()}`,
-      party: category,
-      amount: Number(amount),
-      type: 'PAID',
-      method: 'CASH',
-      status: 'COMPLETED',
-      date: now,
-      note: `Expense: ${desc || category} (auto)`,
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const showToastMsg = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2800);
+  }, []);
+
+  // Category config with emojis and grouping
+  const categoryConfig: Record<string, { emoji: string; color: string; bg: string; group: string }> = useMemo(() => ({
+    'Rent': { emoji: '🏠', color: '#DC2626', bg: 'rgba(220,38,38,0.08)', group: 'Business' },
+    'Electricity': { emoji: '⚡', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)', group: 'Business' },
+    'Salary': { emoji: '💰', color: '#10B981', bg: 'rgba(16,185,129,0.08)', group: 'Business' },
+    'Transport': { emoji: '🚛', color: '#6366F1', bg: 'rgba(99,102,241,0.08)', group: 'Operations' },
+    'Maintenance': { emoji: '🔧', color: '#8B5CF6', bg: 'rgba(139,92,246,0.08)', group: 'Operations' },
+    'Marketing': { emoji: '📢', color: '#EC4899', bg: 'rgba(236,72,153,0.08)', group: 'Growth' },
+    'Other': { emoji: '📦', color: '#64748B', bg: 'rgba(100,116,139,0.08)', group: 'Other' },
+  }), []);
+
+  const getCatConfig = (cat: string) => categoryConfig[cat] || { emoji: '📦', color: '#64748B', bg: 'rgba(100,116,139,0.08)', group: 'Other' };
+
+  // ── Load expenses from Supabase on mount + real-time subscription ──
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const rows = await expensesServiceFetch(myId);
+      if (!cancelled) setState(s => ({ ...s, expenses: rows }));
     };
-    setState(s => ({
-      ...s,
-      expenses: [newExpense, ...s.expenses],
-      payments: [autoPayment, ...(s.payments || [])],
-    }));
-    setShowAdd(false);
-    setAmount('');
-    setDesc('');
+    load();
+
+    const unsubscribe = expensesServiceSubscribe(myId, (rows) => {
+      if (!cancelled) setState(s => ({ ...s, expenses: rows }));
+    });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [myId]);
+
+  // ── Month-filtered expenses ──
+  const monthExpenses = useMemo(() => {
+    return state.expenses.filter(e => {
+      const d = new Date(e.date);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return ym === selectedMonth;
+    });
+  }, [state.expenses, selectedMonth]);
+
+  // ── Filtered & sorted expenses ──
+  const filtered = useMemo(() => {
+    let items = [...monthExpenses];
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase();
+      items = items.filter(e =>
+        (e.description || '').toLowerCase().includes(q) ||
+        e.category.toLowerCase().includes(q)
+      );
+    }
+    if (filterCategory !== 'ALL') {
+      items = items.filter(e => e.category === filterCategory);
+    }
+    if (filterDate) {
+      items = items.filter(e => e.date.startsWith(filterDate));
+    }
+    items.sort((a, b) => {
+      if (sortDir === 'desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
+      return new Date(a.date).getTime() - new Date(b.date).getTime();
+    });
+    return items;
+  }, [monthExpenses, searchText, filterCategory, filterDate, sortDir]);
+
+  // ── Category breakdown for summary ──
+  const categoryBreakdown = useMemo(() => {
+    const map: Record<string, number> = {};
+    monthExpenses.forEach(e => {
+      map[e.category] = (map[e.category] || 0) + e.amount;
+    });
+    return Object.entries(map)
+      .map(([cat, amt]) => ({ category: cat, amount: amt, config: getCatConfig(cat) }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [monthExpenses]);
+
+  const totalMonth = monthExpenses.reduce((acc, e) => acc + e.amount, 0);
+  const filteredTotal = filtered.reduce((acc, e) => acc + e.amount, 0);
+  const totalAll = state.expenses.reduce((acc, e) => acc + e.amount, 0);
+
+  // Previous month comparison
+  const prevMonthTotal = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const pm = m === 1 ? 12 : m - 1;
+    const py = m === 1 ? y - 1 : y;
+    const pmKey = `${py}-${String(pm).padStart(2, '0')}`;
+    return state.expenses
+      .filter(e => { const d = new Date(e.date); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === pmKey; })
+      .reduce((acc, e) => acc + e.amount, 0);
+  }, [state.expenses, selectedMonth]);
+
+  const monthChange = prevMonthTotal > 0 ? ((totalMonth - prevMonthTotal) / prevMonthTotal * 100) : 0;
+
+  // ── Group transactions by date ──
+  const groupedByDate = useMemo(() => {
+    const groups: Record<string, typeof filtered> = {};
+    filtered.forEach(e => {
+      const dateKey = new Date(e.date).toISOString().slice(0, 10);
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(e);
+    });
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtered]);
+
+  // Date label helper
+  const getDateLabel = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    if (target.getTime() === today.getTime()) return 'Today';
+    if (target.getTime() === yesterday.getTime()) return 'Yesterday';
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  };
+
+  // Month display
+  const monthDisplay = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const d = new Date(y, m - 1);
+    return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  }, [selectedMonth]);
+
+  const navigateMonth = (dir: -1 | 1) => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const nd = new Date(y, m - 1 + dir);
+    setSelectedMonth(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  // Category groups for dropdown
+  const catGroups = useMemo(() => {
+    const groups: Record<string, string[]> = {};
+    EXPENSE_CATEGORIES.forEach(c => {
+      const cfg = getCatConfig(c);
+      if (!groups[cfg.group]) groups[cfg.group] = [];
+      if (catSearch && !c.toLowerCase().includes(catSearch.toLowerCase())) return;
+      groups[cfg.group].push(c);
+    });
+    return Object.entries(groups).filter(([, cats]) => cats.length > 0);
+  }, [catSearch]);
+
+  const addExpense = async () => {
+    if (!amount || Number(amount) <= 0) return;
+    setAddLoading(true);
+    setSaveSuccess(false);
+    const selectedDate = expenseDate ? new Date(expenseDate).toISOString() : new Date().toISOString();
+    try {
+      const newExpense = await expensesServiceAdd(myId, {
+        amount: Number(amount),
+        category,
+        description: desc,
+        date: selectedDate,
+      });
+      const autoPayment: Payment = {
+        id: `pay_exp_${Date.now()}`,
+        party: category,
+        amount: Number(amount),
+        type: 'PAID',
+        method: 'CASH',
+        status: 'COMPLETED',
+        date: selectedDate,
+        note: `Expense: ${desc || category} (auto)`,
+      };
+      setState(s => ({
+        ...s,
+        expenses: [newExpense, ...s.expenses],
+        payments: [autoPayment, ...(s.payments || [])],
+      }));
+      setSaveSuccess(true);
+      showToastMsg(`₹${Number(amount).toLocaleString()} expense added`);
+      setTimeout(() => { setShowAdd(false); setSaveSuccess(false); }, 1000);
+      setAmount(''); setDesc(''); setExpenseDate(new Date().toISOString().slice(0, 10));
+    } catch {
+      const fallback: Expense = {
+        id: Math.random().toString(),
+        amount: Number(amount),
+        category,
+        description: desc,
+        date: selectedDate,
+      };
+      setState(s => ({ ...s, expenses: [fallback, ...s.expenses] }));
+      setSaveSuccess(true);
+      showToastMsg(`₹${Number(amount).toLocaleString()} expense added (offline)`);
+      setTimeout(() => { setShowAdd(false); setSaveSuccess(false); }, 1000);
+      setAmount(''); setDesc(''); setExpenseDate(new Date().toISOString().slice(0, 10));
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try { await expensesServiceDelete(id); } catch { /* ignore */ }
+    setState(s => ({ ...s, expenses: s.expenses.filter(e => e.id !== id) }));
+    setDeleteId(null);
+    showToastMsg('Expense deleted');
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-black text-slate-900 dark:text-white font-display">{t.expenses}</h2>
-          <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-1">Track all your spending</p>
-        </div>
-        <Button onClick={() => setShowAdd(true)} className="btn-glow"><Plus /> {t.addExpense}</Button>
-      </div>
+    <div className="max-w-5xl mx-auto pb-24 sm:pb-8 animate-in fade-in duration-500">
 
-      {/* Total card */}
-      <div className="rounded-3xl p-8 text-white relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #be123c, #e11d48, #fb7185)' }}>
-        <div className="absolute right-0 top-0 w-48 h-48 rounded-full opacity-10 -mr-12 -mt-12" style={{ background: 'white' }} />
-        <p className="text-[10px] font-black uppercase tracking-widest opacity-80">{t.totalExpenses}</p>
-        <p className="text-5xl font-black mt-2" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>₹{total.toLocaleString()}</p>
-        <p className="text-sm font-semibold opacity-70 mt-2">{state.expenses.length} transactions recorded</p>
-      </div>
-
-      {showAdd && (
-        <div className="card-pro bg-white dark:bg-slate-800/80 rounded-3xl p-8 space-y-6 border-2 border-rose-100 dark:border-rose-900/20">
-          <h3 className="font-black text-lg text-slate-800 dark:text-white">New Expense</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Amount (₹)</label>
-              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white" placeholder="0.00" />
-            </div>
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Category</label>
-              <select value={category} onChange={e => setCategory(e.target.value)} className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white">
-                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Description</label>
-            <input type="text" value={desc} onChange={e => setDesc(e.target.value)} className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white" placeholder="e.g. Monthly Rent" />
-          </div>
-          <div className="flex gap-4">
-            <Button fullWidth className="btn-glow" onClick={addExpense}>{t.saveChanges}</Button>
-            <Button variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
+      {/* ═══════════════ SUMMARY SECTION ═══════════════ */}
+      <div className="mb-8">
+        {/* Title row with month nav */}
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">Summary</h2>
+          <div className="flex items-center gap-1 bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/50 px-1 py-1">
+            <button onClick={() => navigateMonth(-1)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-all active:scale-95">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="px-3 text-sm font-bold text-slate-700 dark:text-slate-200 min-w-[120px] text-center">{monthDisplay}</span>
+            <button onClick={() => navigateMonth(1)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-all active:scale-95">
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      )}
 
-      <div className="space-y-4">
-        {state.expenses.map(e => (
-          <div key={e.id} className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl flex justify-between items-center p-5 border border-slate-100 dark:border-slate-700/60">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl text-rose-600 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #ffe4e6, #fecdd3)' }}>
-                <Minus className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="font-black text-slate-800 dark:text-white">{e.description || e.category}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{e.category} &bull; {new Date(e.date).toLocaleDateString()}</p>
-              </div>
-            </div>
-            <p className="text-xl font-black text-rose-500">- ₹{e.amount.toLocaleString()}</p>
+        {/* Net Total */}
+        <div className="mb-5">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Net Total</p>
+          <div className="flex items-baseline gap-3">
+            <span className="text-4xl font-black text-slate-900 dark:text-white" style={{ fontFamily: 'Space Grotesk, Inter, sans-serif' }}>
+              ₹{totalMonth.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+            </span>
+            {prevMonthTotal > 0 && (
+              <span className={`text-xs font-bold flex items-center gap-0.5 ${monthChange >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                <TrendingUp className={`w-3 h-3 ${monthChange < 0 ? 'rotate-180' : ''}`} />
+                {monthChange >= 0 ? '+' : ''}{monthChange.toFixed(1)}% from last month
+              </span>
+            )}
           </div>
-        ))}
-        {state.expenses.length === 0 && (
-          <div className="text-center py-16 text-slate-400">
-            <div className="w-16 h-16 rounded-3xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #ffe4e6, #fecdd3)' }}>
-              <Minus className="w-8 h-8 text-rose-400" />
+        </div>
+
+        {/* Horizontal breakdown bar */}
+        {categoryBreakdown.length > 0 && (
+          <div className="mb-5">
+            <div className="flex rounded-full overflow-hidden h-3 bg-slate-100 dark:bg-slate-700/40">
+              {categoryBreakdown.map((item, i) => (
+                <div
+                  key={item.category}
+                  className="h-full relative group transition-all duration-300 hover:opacity-80"
+                  style={{
+                    width: `${Math.max((item.amount / totalMonth) * 100, 2)}%`,
+                    backgroundColor: item.config.color,
+                    borderRadius: i === 0 ? '9999px 0 0 9999px' : i === categoryBreakdown.length - 1 ? '0 9999px 9999px 0' : '0',
+                  }}
+                >
+                  {/* Tooltip on hover */}
+                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-[10px] font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-10 shadow-lg">
+                    {item.config.emoji} {item.category} {((item.amount / totalMonth) * 100).toFixed(0)}%
+                  </div>
+                </div>
+              ))}
             </div>
-            <p className="font-black text-lg">No expenses yet</p>
-            <p className="text-sm mt-1">Tap "Add Expense" to record your first one</p>
+          </div>
+        )}
+
+        {/* Category stat cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {categoryBreakdown.slice(0, 4).map(item => {
+            const pct = totalMonth > 0 ? ((item.amount / totalMonth) * 100).toFixed(0) : '0';
+            return (
+              <div key={item.category}
+                className="bg-white dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/40 transition-all hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600 cursor-pointer group"
+                onClick={() => { setFilterCategory(item.category === filterCategory ? 'ALL' : item.category); }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold" style={{ color: item.config.color }}>{item.category}</span>
+                  <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                </div>
+                <p className="text-lg font-black text-slate-800 dark:text-white leading-none" style={{ fontFamily: 'Space Grotesk, Inter, sans-serif' }}>
+                  ₹{item.amount.toLocaleString('en-IN')}
+                </p>
+                <div className="flex items-center gap-1 mt-2">
+                  <span className="text-base">{item.config.emoji}</span>
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    {monthExpenses.filter(e => e.category === item.category).length} txn{monthExpenses.filter(e => e.category === item.category).length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                {/* Active filter indicator */}
+                {filterCategory === item.category && (
+                  <div className="mt-2 h-0.5 rounded-full" style={{ backgroundColor: item.config.color }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Show remaining categories if >4 */}
+        {categoryBreakdown.length > 4 && (
+          <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+            {categoryBreakdown.slice(4).map(item => (
+              <button key={item.category}
+                onClick={() => setFilterCategory(item.category === filterCategory ? 'ALL' : item.category)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
+                  filterCategory === item.category
+                    ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700/60'
+                    : 'border-transparent bg-white dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                }`}
+              >
+                <span>{item.config.emoji}</span>
+                <span className="text-slate-600 dark:text-slate-300">{item.category}</span>
+                <span className="text-slate-400">₹{item.amount.toLocaleString('en-IN')}</span>
+              </button>
+            ))}
           </div>
         )}
       </div>
+
+      {/* ═══════════════ TRANSACTIONS SECTION ═══════════════ */}
+      <div>
+        {/* Transactions header */}
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-xl font-black text-slate-900 dark:text-white">Transactions</h3>
+        </div>
+        <p className="text-[12px] text-slate-400 font-semibold mb-5">
+          You had {monthExpenses.length} expense{monthExpenses.length !== 1 ? 's' : ''} this month
+          {filterCategory !== 'ALL' && <span> &middot; filtered by <span className="text-slate-600 dark:text-slate-300 font-bold">{filterCategory}</span></span>}
+        </p>
+
+        {/* Controls row: Sort + Category + Add */}
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          {/* Sort toggle */}
+          <button
+            onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-[12px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 hover:border-slate-300 dark:hover:border-slate-600 transition-all active:scale-[0.97]"
+          >
+            <ArrowUpRight className={`w-3.5 h-3.5 transition-transform ${sortDir === 'asc' ? 'rotate-180' : ''}`} />
+            {sortDir === 'desc' ? 'Newest' : 'Oldest'}
+          </button>
+
+          {/* Category dropdown */}
+          <div className="relative" ref={catDropdownRef}>
+            <button
+              onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-[12px] font-bold transition-all active:scale-[0.97] border ${
+                filterCategory !== 'ALL'
+                  ? 'text-slate-800 dark:text-white bg-white dark:bg-slate-800/60 border-slate-300 dark:border-slate-600'
+                  : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/50 hover:border-slate-300 dark:hover:border-slate-600'
+              }`}
+            >
+              {filterCategory !== 'ALL' && <span className="text-sm">{getCatConfig(filterCategory).emoji}</span>}
+              Category
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showCategoryDropdown ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Dropdown panel */}
+            {showCategoryDropdown && (
+              <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-2xl z-40 overflow-hidden"
+                style={{ animation: 'fadeIn 150ms ease-out', boxShadow: '0 20px 60px rgba(0,0,0,0.1)' }}>
+                {/* Search */}
+                <div className="p-3 border-b border-slate-100 dark:border-slate-700/40">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
+                    <input
+                      type="text"
+                      value={catSearch}
+                      onChange={e => setCatSearch(e.target.value)}
+                      placeholder="Search..."
+                      className="w-full bg-slate-50 dark:bg-slate-700/40 rounded-xl py-2.5 pl-9 pr-3 text-[12px] font-semibold text-slate-700 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-600/40 focus:outline-none focus:border-indigo-400 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* "All" option */}
+                <div className="py-1">
+                  <button
+                    onClick={() => { setFilterCategory('ALL'); setShowCategoryDropdown(false); setCatSearch(''); }}
+                    className={`w-full flex items-center justify-between px-4 py-2.5 text-[12px] font-semibold transition-colors ${
+                      filterCategory === 'ALL' ? 'bg-indigo-50 dark:bg-indigo-900/15 text-indigo-600 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span className="text-sm">📋</span> All Categories
+                    </span>
+                    {filterCategory === 'ALL' && <CheckCircle className="w-4 h-4 text-indigo-500" />}
+                  </button>
+                </div>
+
+                {/* Grouped categories */}
+                <div className="max-h-64 overflow-y-auto">
+                  {catGroups.map(([group, cats]) => (
+                    <div key={group}>
+                      <p className="px-4 py-2 text-[9px] font-bold text-slate-400 uppercase tracking-widest">{group}</p>
+                      {cats.map(c => {
+                        const cc = getCatConfig(c);
+                        const isActive = filterCategory === c;
+                        return (
+                          <button
+                            key={c}
+                            onClick={() => { setFilterCategory(isActive ? 'ALL' : c); setShowCategoryDropdown(false); setCatSearch(''); }}
+                            className={`w-full flex items-center justify-between px-4 py-2.5 text-[12px] font-semibold transition-colors ${
+                              isActive ? 'bg-indigo-50 dark:bg-indigo-900/15 text-indigo-600 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <span className="text-sm">{cc.emoji}</span> {c}
+                            </span>
+                            {isActive && <CheckCircle className="w-4 h-4 text-indigo-500" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Clear filter button */}
+          {(filterCategory !== 'ALL' || searchText) && (
+            <button
+              onClick={() => { setFilterCategory('ALL'); setSearchText(''); }}
+              className="flex items-center gap-1 px-3 py-2.5 rounded-xl text-[12px] font-bold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/15 transition-all active:scale-95"
+            >
+              <X className="w-3.5 h-3.5" /> Clear
+            </button>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Add button */}
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[12px] font-bold text-white transition-all hover:shadow-lg active:scale-[0.97]"
+            style={{ background: 'linear-gradient(135deg, #1e293b, #334155)', boxShadow: '0 4px 14px rgba(30,41,59,0.25)' }}
+          >
+            <Plus className="w-4 h-4" /> Add
+          </button>
+        </div>
+
+        {/* Search bar */}
+        <div className="relative mb-5">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+          <input
+            type="text"
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            placeholder="Search transactions..."
+            className="w-full bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 rounded-xl py-3 pl-11 pr-10 text-[13px] font-semibold text-slate-700 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
+          />
+          {searchText && (
+            <button onClick={() => setSearchText('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center hover:bg-slate-300 transition-colors">
+              <X className="w-3 h-3 text-slate-500 dark:text-slate-300" />
+            </button>
+          )}
+        </div>
+
+        {/* Filter summary */}
+        {(searchText || filterCategory !== 'ALL') && (
+          <div className="flex items-center justify-between px-1 mb-4">
+            <p className="text-[11px] font-semibold text-slate-400">
+              {filtered.length} of {monthExpenses.length} expenses
+            </p>
+            <p className="text-sm font-black text-rose-500">₹{filteredTotal.toLocaleString('en-IN')}</p>
+          </div>
+        )}
+
+        {/* ═══════════════ ADD EXPENSE FORM ═══════════════ */}
+        {showAdd && (
+          <div className="mb-6 bg-white dark:bg-slate-800/80 rounded-2xl border-2 border-slate-200 dark:border-slate-700/50 overflow-hidden"
+            style={{ animation: 'fadeIn 200ms ease-out' }}>
+            <div className="p-5 border-b border-slate-100 dark:border-slate-700/40 flex items-center justify-between">
+              <h3 className="font-black text-base text-slate-800 dark:text-white">New Expense</h3>
+              <button onClick={() => { setShowAdd(false); setSaveSuccess(false); }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Amount (₹)</label>
+                  <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-base font-bold text-slate-800 dark:text-white placeholder:text-slate-300 focus:outline-none focus:border-indigo-400 transition-colors"
+                    placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Category</label>
+                  <div className="relative">
+                    <select value={category} onChange={e => setCategory(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-sm font-bold text-slate-800 dark:text-white appearance-none focus:outline-none focus:border-indigo-400 transition-colors">
+                      {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{getCatConfig(c).emoji} {c}</option>)}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Description</label>
+                  <input type="text" value={desc} onChange={e => setDesc(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 dark:text-white placeholder:text-slate-300 focus:outline-none focus:border-indigo-400 transition-colors"
+                    placeholder="e.g. Monthly Rent" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Date</label>
+                  <input type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-606/40 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-400 transition-colors" />
+                </div>
+              </div>
+              {saveSuccess && (
+                <div className="flex items-center gap-3 p-3.5 rounded-xl animate-in fade-in duration-200" style={{ background: 'rgba(16,185,129,0.08)', border: '1.5px solid rgba(16,185,129,0.25)' }}>
+                  <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <p className="font-bold text-emerald-700 dark:text-emerald-400 text-[12px]">Expense saved!</p>
+                </div>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={addExpense}
+                  disabled={addLoading || !amount || Number(amount) <= 0}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm text-white transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-40"
+                  style={{ background: 'linear-gradient(135deg, #1e293b, #334155)' }}
+                >
+                  {addLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : saveSuccess ? <><CheckCircle className="w-4 h-4" /> Saved!</> : <><CreditCard className="w-4 h-4" /> Save Expense</>}
+                </button>
+                <button onClick={() => { setShowAdd(false); setSaveSuccess(false); }}
+                  className="px-5 py-3 rounded-xl font-bold text-sm text-slate-500 bg-slate-100 dark:bg-slate-700/40 hover:bg-slate-200 dark:hover:bg-slate-600/40 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════ TRANSACTIONS LIST (GROUPED BY DATE) ═══════════════ */}
+        <div className="space-y-1">
+          {groupedByDate.map(([dateKey, expenses]) => (
+            <div key={dateKey}>
+              {/* Date header */}
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1 pt-5 pb-2">{getDateLabel(dateKey)}</p>
+
+              {/* Transaction rows */}
+              <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-700/40 overflow-hidden divide-y divide-slate-50 dark:divide-slate-700/30">
+                {expenses.map(e => {
+                  const cc = getCatConfig(e.category);
+                  const isDeleting = deleteId === e.id;
+                  return (
+                    <div key={e.id}
+                      className="flex items-center gap-3.5 px-4 py-3.5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-700/20 group">
+                      {/* Category icon */}
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-base shrink-0 transition-transform duration-200 group-hover:scale-105"
+                        style={{ background: cc.bg }}>
+                        {cc.emoji}
+                      </div>
+
+                      {/* Description + category tag */}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-[13px] text-slate-800 dark:text-white truncate leading-tight">
+                          {e.description || e.category}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md"
+                            style={{ background: cc.bg, color: cc.color }}>
+                            {cc.emoji} {e.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Amount + actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <p className="text-[15px] font-black text-rose-500 tabular-nums" style={{ fontFamily: 'Space Grotesk, Inter, sans-serif' }}>
+                          -₹{e.amount.toLocaleString('en-IN')}
+                        </p>
+                        {isDeleting ? (
+                          <div className="flex items-center gap-1 animate-in fade-in duration-150">
+                            <button onClick={() => handleDelete(e.id)}
+                              className="w-7 h-7 rounded-lg bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-colors">
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => setDeleteId(null)}
+                              className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-600 text-slate-500 dark:text-slate-300 flex items-center justify-center hover:bg-slate-300 transition-colors">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setDeleteId(e.id)}
+                            className="w-7 h-7 rounded-lg opacity-0 group-hover:opacity-100 transition-all text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/15 flex items-center justify-center">
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ═══════════════ EMPTY STATES ═══════════════ */}
+        {monthExpenses.length > 0 && filtered.length === 0 && (
+          <div className="text-center py-16">
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.08)' }}>
+              <Search className="w-7 h-7 text-indigo-300" />
+            </div>
+            <h3 className="font-black text-base text-slate-800 dark:text-white">No matching expenses</h3>
+            <p className="text-sm text-slate-400 mt-1">Try adjusting your search or filters</p>
+            <button onClick={() => { setSearchText(''); setFilterCategory('ALL'); }}
+              className="mt-4 px-4 py-2 rounded-xl text-[11px] font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/15 border border-indigo-200 dark:border-indigo-700/30 hover:bg-indigo-100 transition-all active:scale-95">
+              Clear all filters
+            </button>
+          </div>
+        )}
+
+        {monthExpenses.length === 0 && (
+          <div className="text-center py-20">
+            <div className="w-20 h-20 rounded-3xl mx-auto mb-5 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FEF2F2, #FECACA)' }}>
+              <CreditCard className="w-9 h-9 text-rose-300" />
+            </div>
+            <h3 className="font-black text-lg text-slate-800 dark:text-white">No expenses this month</h3>
+            <p className="text-sm text-slate-400 mt-1.5 max-w-xs mx-auto">
+              Tap "+ Add" to record your first expense for {monthDisplay}
+            </p>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="mt-5 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all hover:shadow-lg active:scale-[0.97]"
+              style={{ background: 'linear-gradient(135deg, #1e293b, #334155)' }}
+            >
+              <Plus className="w-4 h-4" /> Add Expense
+            </button>
+          </div>
+        )}
+
+        {/* Summary footer */}
+        {monthExpenses.length > 0 && (
+          <div className="mt-6 text-center">
+            <p className="text-[10px] font-bold text-slate-300 dark:text-slate-600 uppercase tracking-widest">
+              Total all-time: ₹{totalAll.toLocaleString('en-IN')} &middot; {state.expenses.length} expenses
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════ TOAST ═══════════════ */}
+      {toast && (
+        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-bold shadow-2xl flex items-center gap-2"
+          style={{ animation: 'slideUp 250ms ease-out', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+          <CheckCircle className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+          {toast}
+        </div>
+      )}
+
+      {/* Keyframe animations */}
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+      `}</style>
     </div>
   );
 };
 
 const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.SetStateAction<AppState>>, t: any }> = ({ state, setState, t }) => {
-  const [searchId, setSearchId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [followLoading, setFollowLoading] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'followers' | 'following' | 'pending'>('all');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [connectionProfiles, setConnectionProfiles] = useState<Record<string, any>>({});
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const [showFilterDrawer, setShowFilterDrawer] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [initialLoad, setInitialLoad] = useState(true);
 
-  const connectBusiness = () => {
-    if (!searchId) return;
-    const newConn: BusinessConnection = {
-      id: Math.random().toString(),
-      businessId: searchId,
-      name: 'Business ' + searchId.split('-')[1],
-      role: UserRole.DISTRIBUTOR,
-      status: 'PENDING'
+  const myId = state.profile.id;
+
+  // Toast helper
+  const showToastMsg = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2800);
+  }, []);
+
+  // Load connections from Supabase on mount + subscribe to real-time
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const rows = await connectionsServiceFetchConnections(myId);
+      if (!cancelled) { applyConnectionRows(rows); setInitialLoad(false); }
     };
-    setState(s => ({ ...s, connections: [newConn, ...s.connections] }));
-    setSearchId('');
+    load();
+
+    const unsubscribe = connectionsServiceSubscribe(myId, (rows) => {
+      if (!cancelled) applyConnectionRows(rows);
+    });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [myId]);
+
+  // Convert Supabase rows → local BusinessConnection state + fetch profiles
+  const applyConnectionRows = async (rows: any[]) => {
+    const otherIds = rows.map(r => r.follower_id === myId ? r.following_id : r.follower_id);
+    const profiles = otherIds.length ? await connectionsServiceFetchProfiles(otherIds) : [];
+    const profileMap: Record<string, any> = {};
+    profiles.forEach(p => { profileMap[p.id] = p; });
+    setConnectionProfiles(prev => ({ ...prev, ...profileMap }));
+
+    const connections: BusinessConnection[] = rows.map(r => {
+      const isOutgoing = r.follower_id === myId;
+      const otherId = isOutgoing ? r.following_id : r.follower_id;
+      const p = profileMap[otherId];
+      return {
+        id: r.id,
+        businessId: otherId,
+        name: p?.name || p?.shop_name || otherId,
+        shopName: p?.shop_name || '',
+        role: (p?.role as UserRole) || UserRole.RETAILER,
+        city: p?.city || '',
+        status: r.status === 'ACCEPTED' ? 'CONNECTED' : 'PENDING',
+        direction: isOutgoing ? 'outgoing' : 'incoming',
+      };
+    });
+    setState(s => ({ ...s, connections }));
   };
 
+  // ── Fetch recommendations ──
+  const loadRecommendations = useCallback(async () => {
+    setRecsLoading(true);
+    try {
+      const excludeIds = state.connections.map(c => c.businessId);
+      const recs = await connectionsServiceRecommend(
+        myId,
+        state.profile.city || '',
+        state.role || 'RETAILER',
+        excludeIds,
+        8
+      );
+      setRecommendations(recs);
+    } catch {
+      // ignore
+    } finally {
+      setRecsLoading(false);
+    }
+  }, [myId, state.connections, state.profile.city, state.role]);
+
+  useEffect(() => {
+    loadRecommendations();
+  }, [loadRecommendations]);
+
+  // Live search with debounce
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!searchQuery || searchQuery.length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    searchTimerRef.current = setTimeout(async () => {
+      const results = await connectionsServiceSearch(searchQuery, myId);
+      setSearchResults(results);
+      setSearchLoading(false);
+    }, 350);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [searchQuery, myId]);
+
+  // Follow a business
+  const handleFollow = async (targetId: string) => {
+    setFollowLoading(targetId);
+    try {
+      await connectionsServiceFollow(myId, targetId);
+      showToastMsg('Follow request sent!');
+      setSearchQuery('');
+      setSearchResults([]);
+    } catch (err: any) {
+      showToastMsg('Follow failed. Try again.');
+      console.warn('Follow failed:', err.message);
+    } finally {
+      setFollowLoading(null);
+    }
+  };
+
+  // Accept incoming follow
+  const handleAccept = async (connectionId: string) => {
+    try {
+      await connectionsServiceAccept(connectionId);
+      showToastMsg('Connection accepted!');
+    } catch (err: any) {
+      showToastMsg('Accept failed. Try again.');
+      console.warn('Accept failed:', err.message);
+    }
+  };
+
+  // Unfollow
+  const handleUnfollow = async (connectionId: string) => {
+    try {
+      await connectionsServiceUnfollow(connectionId);
+      showToastMsg('Unfollowed successfully.');
+    } catch (err: any) {
+      showToastMsg('Unfollow failed. Try again.');
+      console.warn('Unfollow failed:', err.message);
+    }
+  };
+
+  // Already-followed IDs set — memoized to avoid re-creating Set on every render
+  const followedIds = useMemo(() => new Set(state.connections.map(c => c.businessId)), [state.connections]);
+
+  // Filtered connections
+  const filteredConnections = useMemo(() => state.connections.filter(c => {
+    if (activeFilter === 'followers') return c.direction === 'incoming' && c.status === 'CONNECTED';
+    if (activeFilter === 'following') return c.direction === 'outgoing';
+    if (activeFilter === 'pending') return c.status === 'PENDING';
+    return true;
+  }), [state.connections, activeFilter]);
+
+  const filterTabs = useMemo(() => [
+    { key: 'all' as const, label: 'All', icon: Users, count: state.connections.length },
+    { key: 'following' as const, label: 'Following', icon: UserPlus, count: state.connections.filter(c => c.direction === 'outgoing').length },
+    { key: 'followers' as const, label: 'Followers', icon: UserCheck, count: state.connections.filter(c => c.direction === 'incoming' && c.status === 'CONNECTED').length },
+    { key: 'pending' as const, label: 'Pending', icon: Clock, count: state.connections.filter(c => c.status === 'PENDING').length },
+  ], [state.connections]);
+
+  const pendingIncoming = useMemo(() => state.connections.filter(c => c.direction === 'incoming' && c.status === 'PENDING'), [state.connections]);
+
+  // Extracted highlightText out of .map() — only depends on searchQuery
+  const highlightText = useCallback((text: string) => {
+    if (!searchQuery) return text;
+    const idx = text.toLowerCase().indexOf(searchQuery.toLowerCase());
+    if (idx === -1) return text;
+    return <>{text.slice(0, idx)}<span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded px-0.5">{text.slice(idx, idx + searchQuery.length)}</span>{text.slice(idx + searchQuery.length)}</>;
+  }, [searchQuery]);
+
+  const roleConfig = useCallback((role: UserRole) => {
+    if (role === UserRole.MANUFACTURER) return { bg: '#FEF3C7', bgDark: 'rgba(245,158,11,0.12)', border: '#FDE68A', text: '#92400E', accent: '#F59E0B', emoji: '🏭', label: 'Manufacturer', gradient: 'linear-gradient(135deg, #F59E0B, #D97706)' };
+    if (role === UserRole.DISTRIBUTOR) return { bg: '#D1FAE5', bgDark: 'rgba(16,185,129,0.12)', border: '#A7F3D0', text: '#065F46', accent: '#10B981', emoji: '🚛', label: 'Distributor', gradient: 'linear-gradient(135deg, #10B981, #059669)' };
+    return { bg: '#E0E7FF', bgDark: 'rgba(99,102,241,0.12)', border: '#C7D2FE', text: '#3730A3', accent: '#6366F1', emoji: '🏪', label: 'Shopkeeper', gradient: 'linear-gradient(135deg, #6366F1, #4F46E5)' };
+  }, []);
+
+  // ── Skeleton Card ──
+  const SkeletonCard = () => (
+    <div className="rounded-2xl p-5 border border-slate-100 dark:border-slate-700/40 bg-white dark:bg-slate-800/50 animate-pulse">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-700 shrink-0" />
+        <div className="flex-1 space-y-2.5">
+          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded-lg w-3/4" />
+          <div className="h-3 bg-slate-100 dark:bg-slate-700/60 rounded-lg w-1/2" />
+        </div>
+        <div className="h-9 w-24 bg-slate-200 dark:bg-slate-700 rounded-xl" />
+      </div>
+    </div>
+  );
+
+  // ── Stats Row ──
+  const stats = useMemo(() => ({
+    total: state.connections.length,
+    connected: state.connections.filter(c => c.status === 'CONNECTED').length,
+    pending: state.connections.filter(c => c.status === 'PENDING').length,
+    outgoing: state.connections.filter(c => c.direction === 'outgoing').length,
+  }), [state.connections]);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4">
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-black text-slate-900 dark:text-white font-display">{t.connections}</h2>
-          <p className="text-slate-400 text-xs font-semibold mt-1">Manage your business network</p>
-        </div>
-        <div className="px-4 py-2 rounded-2xl text-indigo-600 border-2 border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 text-[10px] font-black tracking-widest uppercase">
-          Your ID: {state.profile.id}
-        </div>
-      </div>
-
-      <div className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl p-7 space-y-5 border border-slate-100 dark:border-slate-700/60">
-        <div>
-          <h3 className="text-lg font-black text-slate-800 dark:text-white">{t.connect}</h3>
-          <p className="text-xs text-slate-400 font-semibold mt-0.5">Enter a business ID to send connection request</p>
-        </div>
-        <div className="flex gap-4">
-          <input type="text" value={searchId} onChange={e => setSearchId(e.target.value.toUpperCase())} className="input-pro flex-1 bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white" placeholder="Enter Business ID (e.g. MER-XXXX)" />
-          <Button className="btn-glow" onClick={connectBusiness}><Plus /> Connect</Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {state.connections.map(c => (
-          <div key={c.id} className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl p-5 flex items-center justify-between border border-slate-100 dark:border-slate-700/60">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl text-indigo-600 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)' }}>
-                <Building2 className="w-6 h-6" />
+    <div className="max-w-5xl mx-auto pb-24 sm:pb-8 animate-in fade-in duration-500">
+      {/* ═══════════════ STICKY HEADER ═══════════════ */}
+      <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-4"
+        style={{ background: 'linear-gradient(to bottom, var(--tw-gradient-from, rgb(248 250 252)) 80%, transparent)', }}
+      >
+        <div className="dark:hidden" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgb(248,250,252) 80%, transparent)' }} />
+        <div className="hidden dark:block" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgb(15,23,42) 80%, transparent)' }} />
+        <div className="relative">
+          {/* Row 1: Title + ID badge */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg"
+                style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                <Globe className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="font-black text-slate-800 dark:text-white">{c.name}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{c.role} &bull; {c.businessId}</p>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white leading-tight">{t.connections}</h2>
+                <p className="text-[11px] text-slate-400 font-semibold">Discover & grow your business network</p>
               </div>
             </div>
-            <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
-              c.status === 'CONNECTED' ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20' : 'text-amber-700 bg-amber-50 dark:bg-amber-900/20'
-            }`}>
-              {c.status}
-            </span>
-          </div>
-        ))}
-        {state.connections.length === 0 && (
-          <div className="col-span-2 text-center py-16 text-slate-400">
-            <div className="w-16 h-16 rounded-3xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)' }}>
-              <Building2 className="w-8 h-8 text-indigo-400" />
+            <div className="flex items-center gap-2">
+              {pendingIncoming.length > 0 && (
+                <button
+                  onClick={() => setActiveFilter('pending')}
+                  className="relative w-10 h-10 rounded-xl flex items-center justify-center bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 transition-all hover:scale-105 active:scale-95"
+                >
+                  <Bell className="w-4.5 h-4.5 text-amber-600 dark:text-amber-400" />
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-[9px] font-black text-white"
+                    style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)', boxShadow: '0 2px 8px rgba(245,158,11,0.4)' }}>
+                    {pendingIncoming.length}
+                  </span>
+                </button>
+              )}
+              <button
+                onClick={() => setShowFilterDrawer(true)}
+                className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-all hover:border-indigo-300 dark:hover:border-indigo-600 hover:scale-105 active:scale-95"
+              >
+                <SlidersHorizontal className="w-4.5 h-4.5 text-slate-500 dark:text-slate-400" />
+              </button>
             </div>
-            <p className="font-black text-lg">No connections yet</p>
-            <p className="text-sm mt-1">Connect with suppliers and distributors above</p>
           </div>
-        )}
+
+          {/* Row 2: Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-3.5 pl-11 pr-11 text-sm font-semibold text-slate-800 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
+              placeholder="Search businesses by name, shop, or ID..."
+            />
+            {searchLoading && (
+              <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-indigo-400 animate-spin" />
+            )}
+            {searchQuery && !searchLoading && (
+              <button onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center hover:bg-slate-300 transition-colors">
+                <X className="w-3 h-3 text-slate-500 dark:text-slate-300" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* ═══════════════ SEARCH RESULTS DROPDOWN ═══════════════ */}
+      {searchQuery.length >= 2 && (
+        <div className="mb-6 -mt-1">
+          <div className="bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-xl overflow-hidden"
+            style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.08)' }}>
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700/40 flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                {searchLoading ? 'Searching...' : `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`}
+              </span>
+              {searchQuery && (
+                <span className="text-[11px] font-semibold text-slate-400">
+                  for "<span className="text-indigo-500 font-bold">{searchQuery}</span>"
+                </span>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-700/30">
+              {searchResults.map(biz => {
+                const alreadyFollowed = followedIds.has(biz.id);
+                const rc = roleConfig((biz.role as UserRole) || UserRole.RETAILER);
+                const displayName = biz.shop_name || biz.name || biz.id;
+                return (
+                  <div key={biz.id} className="flex items-center justify-between px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors duration-150">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-base shrink-0"
+                        style={{ background: rc.bgDark, border: `1.5px solid ${rc.border}` }}>
+                        {rc.emoji}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-[13px] text-slate-800 dark:text-white truncate">{highlightText(displayName)}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: rc.bgDark, color: rc.accent }}>
+                            {rc.label}
+                          </span>
+                          {biz.city && <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{biz.city}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {alreadyFollowed ? (
+                      <span className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200 dark:border-emerald-700/30 shrink-0">
+                        <UserCheck className="w-3.5 h-3.5" /> Connected
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleFollow(biz.id)}
+                        disabled={followLoading === biz.id}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold text-white transition-all duration-200 hover:shadow-lg hover:scale-[1.02] active:scale-[0.97] disabled:opacity-50 shrink-0"
+                        style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', boxShadow: '0 4px 14px rgba(99,102,241,0.25)' }}
+                      >
+                        {followLoading === biz.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><UserPlus className="w-3.5 h-3.5" /> Follow</>}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {!searchLoading && searchResults.length === 0 && (
+              <div className="py-12 text-center">
+                <Search className="w-10 h-10 text-slate-200 dark:text-slate-600 mx-auto mb-3" />
+                <p className="font-bold text-sm text-slate-400">No businesses found</p>
+                <p className="text-[11px] text-slate-300 dark:text-slate-500 mt-0.5">Try a different name, shop, or ID</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ STATS ROW ═══════════════ */}
+      {!searchQuery && (
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          {[
+            { label: 'Connected', value: stats.connected, icon: Link2, color: '#10B981', bg: 'rgba(16,185,129,0.08)' },
+            { label: 'Following', value: stats.outgoing, icon: UserPlus, color: '#6366F1', bg: 'rgba(99,102,241,0.08)' },
+            { label: 'Pending', value: stats.pending, icon: Clock, color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+          ].map(s => (
+            <div key={s.label} className="bg-white dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/40 text-center transition-all hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center mx-auto mb-2" style={{ background: s.bg }}>
+                <s.icon className="w-4.5 h-4.5" style={{ color: s.color }} />
+              </div>
+              <p className="text-2xl font-black text-slate-800 dark:text-white leading-none">{s.value}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ═══════════════ PENDING INCOMING REQUESTS BANNER ═══════════════ */}
+      {!searchQuery && pendingIncoming.length > 0 && activeFilter !== 'pending' && (
+        <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 rounded-2xl p-4 border border-amber-200/60 dark:border-amber-700/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)' }}>
+                <UserPlus className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-slate-800 dark:text-white">{pendingIncoming.length} pending request{pendingIncoming.length > 1 ? 's' : ''}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Businesses want to connect with you</p>
+              </div>
+            </div>
+            <button onClick={() => setActiveFilter('pending')}
+              className="px-4 py-2 rounded-xl text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-800/20 border border-amber-200 dark:border-amber-700/40 transition-all hover:bg-amber-200/60 active:scale-95">
+              Review
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ RECOMMENDATIONS CAROUSEL ═══════════════ */}
+      {recommendations.length > 0 && !searchQuery && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <h3 className="font-bold text-sm text-slate-700 dark:text-slate-200">Suggested for You</h3>
+              {state.profile.city && (
+                <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-0.5">
+                  <MapPin className="w-2.5 h-2.5" /> {state.profile.city}
+                </span>
+              )}
+            </div>
+            <button onClick={loadRecommendations} disabled={recsLoading}
+              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors flex items-center gap-1 active:scale-95">
+              <RefreshCw className={`w-3 h-3 ${recsLoading ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+            {recommendations.map(biz => {
+              const alreadyFollowed = followedIds.has(biz.id);
+              const rc = roleConfig((biz.role as UserRole) || UserRole.RETAILER);
+              return (
+                <div key={biz.id} className="flex-shrink-0 w-[160px] bg-white dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/40 transition-all duration-200 hover:shadow-lg hover:border-slate-200 dark:hover:border-slate-600 hover:-translate-y-0.5 group">
+                  <div className="flex flex-col items-center text-center gap-2.5">
+                    <div className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-transform duration-200 group-hover:scale-110"
+                      style={{ background: rc.bgDark, border: `2px solid ${rc.border}` }}>
+                      {rc.emoji}
+                    </div>
+                    <div className="min-w-0 w-full">
+                      <p className="font-bold text-[12px] text-slate-800 dark:text-white truncate leading-tight">{biz.shop_name || biz.name || biz.id.slice(0, 12)}</p>
+                      <div className="flex items-center justify-center gap-1 mt-1">
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: rc.bgDark, color: rc.accent }}>
+                          {rc.label}
+                        </span>
+                      </div>
+                      {biz.city && (
+                        <p className="text-[9px] text-slate-400 font-semibold mt-1 flex items-center justify-center gap-0.5">
+                          <MapPin className="w-2 h-2" />{biz.city}
+                        </p>
+                      )}
+                    </div>
+                    {alreadyFollowed ? (
+                      <span className="flex items-center justify-center gap-1 w-full px-2 py-1.5 rounded-lg text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200/60 dark:border-emerald-700/30">
+                        <Check className="w-3 h-3" /> Following
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleFollow(biz.id)}
+                        disabled={followLoading === biz.id}
+                        className="w-full px-2 py-2 rounded-xl font-bold text-[10px] text-white transition-all duration-200 hover:shadow-md active:scale-[0.96] disabled:opacity-50"
+                        style={{ background: rc.gradient, boxShadow: `0 3px 12px ${rc.accent}33` }}
+                      >
+                        {followLoading === biz.id ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : <><Plus className="w-3 h-3 inline mr-0.5" /> Follow</>}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ FILTER TABS ═══════════════ */}
+      {!searchQuery && (
+        <div className="flex gap-1.5 mb-5 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-2xl overflow-x-auto">
+          {filterTabs.map(tab => {
+            const isActive = activeFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveFilter(tab.key)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all duration-200 whitespace-nowrap flex-1 justify-center ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
+                {tab.count > 0 && (
+                  <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[9px] font-black ${
+                    isActive ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                  }`}>{tab.count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ═══════════════ CONNECTIONS LIST ═══════════════ */}
+      {!searchQuery && (
+        <div className="space-y-3">
+          {/* Loading skeletons */}
+          {initialLoad && filteredConnections.length === 0 && (
+            <>{Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}</>
+          )}
+
+          {/* Connection Cards */}
+          {filteredConnections.map(c => {
+            const rc = roleConfig(c.role);
+            const isIncomingPending = c.direction === 'incoming' && c.status === 'PENDING';
+            const isExpanded = expandedCard === c.id;
+            const profile = connectionProfiles[c.businessId];
+            return (
+              <div key={c.id}
+                className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-700/40 transition-all duration-200 hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600 overflow-hidden"
+              >
+                {/* Main card row */}
+                <div className="flex items-center gap-3.5 p-4">
+                  {/* Avatar */}
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-lg shrink-0 transition-transform duration-200 hover:scale-105"
+                    style={{ background: rc.bgDark, border: `2px solid ${rc.border}` }}>
+                    {rc.emoji}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-[14px] text-slate-800 dark:text-white truncate leading-tight">{c.shopName || c.name}</p>
+                      {c.status === 'CONNECTED' && (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: rc.bgDark, color: rc.accent }}>
+                        {rc.label}
+                      </span>
+                      {c.city && (
+                        <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-0.5">
+                          <MapPin className="w-2.5 h-2.5" />{c.city}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isIncomingPending ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleAccept(c.id)}
+                          className="flex items-center gap-1 px-3.5 py-2 rounded-xl text-[11px] font-bold text-white transition-all duration-200 hover:shadow-lg active:scale-[0.96]"
+                          style={{ background: 'linear-gradient(135deg, #10B981, #059669)', boxShadow: '0 3px 12px rgba(16,185,129,0.25)' }}
+                        >
+                          <Check className="w-3.5 h-3.5" /> Accept
+                        </button>
+                        <button
+                          onClick={() => handleUnfollow(c.id)}
+                          className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-95"
+                          title="Decline"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : c.status === 'CONNECTED' ? (
+                      <span className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200/60 dark:border-emerald-700/30">
+                        {c.direction === 'outgoing' ? <><UserCheck className="w-3.5 h-3.5" /> Following</> : <><Users className="w-3.5 h-3.5" /> Follower</>}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/15 border border-amber-200/60 dark:border-amber-700/30">
+                        <Clock className="w-3.5 h-3.5" /> {c.direction === 'outgoing' ? 'Requested' : 'Pending'}
+                      </span>
+                    )}
+                    {/* 3-dot menu */}
+                    <button
+                      onClick={() => setExpandedCard(isExpanded ? null : c.id)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-all"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expandable details */}
+                <div className={`overflow-hidden transition-all duration-250 ease-in-out ${isExpanded ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="px-4 pb-4 pt-1 border-t border-slate-100 dark:border-slate-700/30">
+                    <div className="flex items-center gap-6 text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                      <span className="flex items-center gap-1"><Fingerprint className="w-3 h-3 text-slate-400" /> {c.businessId.slice(0, 16)}...</span>
+                      {profile?.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {profile.email}</span>}
+                      {profile?.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {profile.phone}</span>}
+                    </div>
+                    {c.status === 'CONNECTED' && c.direction === 'outgoing' && (
+                      <button
+                        onClick={() => handleUnfollow(c.id)}
+                        className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/10 hover:bg-rose-100 dark:hover:bg-rose-900/20 border border-rose-200 dark:border-rose-700/30 transition-all active:scale-95"
+                      >
+                        <X className="w-3 h-3" /> Unfollow
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* ═══════════════ EMPTY STATE ═══════════════ */}
+          {!initialLoad && filteredConnections.length === 0 && (
+            <div className="text-center py-20">
+              <div className="w-20 h-20 rounded-3xl mx-auto mb-5 flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' }}>
+                {activeFilter === 'pending' ? <Clock className="w-9 h-9 text-indigo-400" /> : <Users className="w-9 h-9 text-indigo-400" />}
+              </div>
+              <h3 className="font-black text-lg text-slate-800 dark:text-white">
+                {activeFilter === 'all' ? 'No connections yet' : activeFilter === 'pending' ? 'No pending requests' : activeFilter === 'following' ? 'Not following anyone' : 'No followers yet'}
+              </h3>
+              <p className="text-sm text-slate-400 mt-1.5 max-w-xs mx-auto">
+                {activeFilter === 'all'
+                  ? 'Use the search bar above to find and follow businesses in your area'
+                  : 'Check back later or search for new businesses to connect with'}
+              </p>
+              {activeFilter !== 'all' && (
+                <button onClick={() => setActiveFilter('all')}
+                  className="mt-4 px-5 py-2.5 rounded-xl text-[11px] font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/15 border border-indigo-200 dark:border-indigo-700/30 hover:bg-indigo-100 transition-all active:scale-95">
+                  View all connections
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════ YOUR ID FOOTER ═══════════════ */}
+      {!searchQuery && (
+        <div className="mt-8 text-center">
+          <p className="text-[10px] font-bold text-slate-300 dark:text-slate-600 uppercase tracking-widest">Your Business ID</p>
+          <p className="text-xs font-black text-slate-500 dark:text-slate-400 mt-1 font-mono">{state.profile.id}</p>
+        </div>
+      )}
+
+      {/* ═══════════════ FILTER DRAWER ═══════════════ */}
+      {showFilterDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setShowFilterDrawer(false)}>
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" style={{ animation: 'fadeIn 200ms ease-out' }} />
+          <div
+            className="relative w-80 max-w-[85vw] h-full bg-white dark:bg-slate-900 shadow-2xl flex flex-col"
+            style={{ animation: 'slideInRight 250ms ease-out', boxShadow: '-20px 0 60px rgba(0,0,0,0.1)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-black text-base text-slate-800 dark:text-white">Filters</h3>
+              <button onClick={() => setShowFilterDrawer(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 p-5 space-y-6 overflow-y-auto">
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Connection Status</p>
+                <div className="space-y-1.5">
+                  {filterTabs.map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => { setActiveFilter(tab.key); setShowFilterDrawer(false); }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
+                        activeFilter === tab.key
+                          ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700/40'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-transparent'
+                      }`}
+                    >
+                      <tab.icon className="w-4 h-4" />
+                      {tab.label}
+                      <span className="ml-auto text-[11px] font-bold text-slate-400">{tab.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Quick Actions</p>
+                <button
+                  onClick={() => { loadRecommendations(); setShowFilterDrawer(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all border border-transparent"
+                >
+                  <RefreshCw className="w-4 h-4" /> Refresh Suggestions
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ TOAST ═══════════════ */}
+      {toast && (
+        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-bold shadow-2xl flex items-center gap-2"
+          style={{ animation: 'slideUp 250ms ease-out', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+          <CheckCircle className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+          {toast}
+        </div>
+      )}
+
+      {/* ═══════════════ KEYFRAME ANIMATIONS ═══════════════ */}
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </div>
   );
 };
@@ -4030,17 +5671,24 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [payments, search, typeFilter, methodFilter]);
 
-  // ── KPIs ──
-  const totalIn  = payments.filter(p => p.type === 'RECEIVED' && p.status === 'COMPLETED').reduce((s, p) => s + p.amount, 0);
-  const totalOut = payments.filter(p => p.type === 'PAID'     && p.status === 'COMPLETED').reduce((s, p) => s + p.amount, 0);
-  const pending  = payments.filter(p => p.status === 'PENDING').length;
+  // ── KPIs — single-pass aggregation ──
+  const { totalIn, totalOut, pending, salesFromAuto, expenseFromAuto, stockLossAuto } = useMemo(() => {
+    let tIn = 0, tOut = 0, pend = 0, salesAuto = 0, expAuto = 0, lossAuto = 0;
+    for (const p of payments) {
+      const note = p.note || '';
+      if (p.type === 'RECEIVED' && p.status === 'COMPLETED') tIn += p.amount;
+      if (p.type === 'PAID' && p.status === 'COMPLETED') tOut += p.amount;
+      if (p.status === 'PENDING') pend++;
+      if (p.type === 'RECEIVED' && note.includes('(auto)')) salesAuto += p.amount;
+      if (p.type === 'PAID' && note.includes('Expense:')) expAuto += p.amount;
+      if (p.type === 'PAID' && note.includes('(auto)') && !note.includes('Expense:')) lossAuto += p.amount;
+    }
+    return { totalIn: tIn, totalOut: tOut, pending: pend, salesFromAuto: salesAuto, expenseFromAuto: expAuto, stockLossAuto: lossAuto };
+  }, [payments]);
   const net      = totalIn - totalOut;
   const budgetUsed   = totalOut;
   const budgetPct    = budget > 0 ? Math.min(100, Math.round((budgetUsed / budget) * 100)) : 0;
   const budgetColor  = budgetPct >= 90 ? '#f43f5e' : budgetPct >= 70 ? '#f59e0b' : '#10b981';
-  const salesFromAuto   = payments.filter(p => p.type === 'RECEIVED' && (p.note || '').includes('(auto)')).reduce((s, p) => s + p.amount, 0);
-  const expenseFromAuto = payments.filter(p => p.type === 'PAID'     && (p.note || '').includes('Expense:')).reduce((s, p) => s + p.amount, 0);
-  const stockLossAuto   = payments.filter(p => p.type === 'PAID'     && (p.note || '').includes('(auto)') && !(p.note || '').includes('Expense:')).reduce((s, p) => s + p.amount, 0);
 
   // ── CSV export ──
   const exportCSV = () => {
@@ -4439,12 +6087,13 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
   );
 };
 
+const NEARBY_STORES = [
+  { name: 'Rahul General Store', distance: '0.5 km', type: 'Retailer' },
+  { name: 'Mumbai Electronics', distance: '1.2 km', type: 'Retailer' },
+  { name: 'Ganesh Wholesalers', distance: '2.5 km', type: 'Distributor' }
+] as const;
+
 const NearestStoresModule: React.FC<{ t: any }> = ({ t }) => {
-  const stores = [
-    { name: 'Rahul General Store', distance: '0.5 km', type: 'Retailer' },
-    { name: 'Mumbai Electronics', distance: '1.2 km', type: 'Retailer' },
-    { name: 'Ganesh Wholesalers', distance: '2.5 km', type: 'Distributor' }
-  ];
 
   return (
     <div className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl p-8 space-y-6 border border-slate-100 dark:border-slate-700/60">
@@ -4458,7 +6107,7 @@ const NearestStoresModule: React.FC<{ t: any }> = ({ t }) => {
         </div>
       </div>
       <div className="space-y-3">
-        {stores.map(s => (
+        {NEARBY_STORES.map(s => (
           <div key={s.name} className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700/50 last:border-0">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center">

@@ -55,8 +55,11 @@ export interface BusinessConnection {
   id: string;
   businessId: string;
   name: string;
+  shopName?: string;
   role: UserRole;
+  city?: string;
   status: 'PENDING' | 'CONNECTED';
+  direction?: 'outgoing' | 'incoming';
 }
 
 export interface SKU {
@@ -81,6 +84,18 @@ export interface AIInsight {
   quantity: string;
   reason: string;
   impact: string;
+}
+
+export type GeolocationStatus = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable' | 'error';
+
+export interface NearbyStore {
+  id: string;
+  name: string;
+  distance_km: number;
+  lat: number;
+  lng: number;
+  address?: string;
+  category?: string;
 }
 
 export interface UserProfile {
@@ -124,4 +139,6 @@ export interface AppState {
   onboarded: boolean;
   onboardingStep: number;
   profile: UserProfile;
+  geolocationStatus: GeolocationStatus;
+  nearestStores: NearbyStore[];
 }
