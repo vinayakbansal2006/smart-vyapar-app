@@ -34,17 +34,23 @@ To build a reliable operating system for small and medium business supply chains
 
 Run Locally
 1️⃣ Clone the Repository
-git clone https://github.com/your-username/vyaparika.git
+git clone https://github.com/vinayakbansal2006/smart-vyapar-app.git
 cd vyaparika
+
+
 2️⃣ Install Dependencies
 Make sure you have Node.js (v18 or higher) installed.
 Then run:
 npm install
+
+
 3️⃣ Configure Environment Variables
 Create a .env file in the root directory and add:
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 You can find these values in your Supabase project settings.
+
+
 4️⃣ Start Development Server
 npm run dev
 The app will run at:
