@@ -1,20 +1,52 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+Vyaparika
+AI-Based Inventory & Business Network Platform (In Progress)
+Vyaparika is a role-based business management platform designed for Retailers, Distributors, and Manufacturers.
 
-# Run and deploy your AI Studio app
+The goal is to build a scalable system that combines:
+Inventory management
+Expense tracking
+Real-time stock updates
+Business networking (follow-based system)
+Order management (Paid / Unpaid tracking)
+Location-based business discovery
 
-This contains everything you need to run your app locally.
+Current Focus
+Supabase backend integration
+Role-based data isolation
+Real-time subscriptions
+Secure authentication (Google + OTP)
+Clean, scalable database schema
 
-View your app in AI Studio: https://ai.studio/apps/b673be70-7e64-4830-b7dc-b3933a8d7e63
+Tech Stack
+Frontend:
+React (Vite) • TypeScript • TailwindCSS
+Backend:
+Supabase (PostgreSQL, Auth, Realtime, RLS)
 
-## Run Locally
+Status
+🚧 Actively under development
+Architecture-first approach
+Core backend being stabilized before feature expansion
 
-**Prerequisites:**  Node.js
+Vision
+To build a reliable operating system for small and medium business supply chains — not just another inventory app.
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Run Locally
+1️⃣ Clone the Repository
+git clone https://github.com/your-username/vyaparika.git
+cd vyaparika
+2️⃣ Install Dependencies
+Make sure you have Node.js (v18 or higher) installed.
+Then run:
+npm install
+3️⃣ Configure Environment Variables
+Create a .env file in the root directory and add:
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+You can find these values in your Supabase project settings.
+4️⃣ Start Development Server
+npm run dev
+The app will run at:
+http://localhost:3000
+(or the port shown in your terminal)
