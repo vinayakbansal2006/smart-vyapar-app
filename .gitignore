@@ -1,10 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
 # Environment variables (API keys, secrets)
 .env
 .env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env.*.local
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -12,18 +24,44 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+!.vscode/settings.json
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Vite
+*.local
+vite.config.ts.timestamp-*
+
+# TypeScript
+*.tsbuildinfo
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
+storage-debug.log
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# Testing
+coverage/
+
+# Misc
+*.pem
+.cache/
