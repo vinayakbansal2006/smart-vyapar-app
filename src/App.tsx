@@ -15,7 +15,7 @@ import { UserRole, ShopType, LanguageCode, SKU, AppState, UserProfile, StockLog,
 import { TRANSLATIONS, CATEGORIES, UNITS, INDIAN_LANGUAGES, EXPENSE_CATEGORIES } from './constants';
 import { getInventoryInsights, predictSKUMetadata, identifyProductFromImage, SKUPrediction } from './services/geminiService';
 import { useGeolocation } from './hooks/useGeolocation';
-import { signInWithGoogle, sendPhoneOtp, verifyPhoneOtp, upsertUserProfile, onAuthStateChange, getSession, signOut } from './services/authService';
+import { signInWithGoogle, sendPhoneOtp, verifyPhoneOtp, upsertUserProfile, onAuthStateChange, getSession, signOut, logoutFirebase } from './services/authService';
 import LoginPage from './components/auth/LoginPage';
 import {
   followBusiness as connectionsServiceFollow,
@@ -1058,14 +1058,34 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
       timestamp: new Date().toISOString(),
       email: state.profile.email || undefined
     });
-    // Clear Supabase session
+    // Clear Supabase + Firebase sessions
     try { await signOut(); } catch { /* ignore */ }
-    setState(s => ({
-      ...s,
+    try { await logoutFirebase(); } catch { /* ignore */ }
+    // Full state reset so next user gets clean slate
+    const freshProfile: UserProfile = {
+      id: 'MER-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+      name: '', phone: '', email: '', shopName: '', city: '', state: '',
+      businessCategory: '', establishedYear: '', gstin: '', address: '',
+      bioAuthEnabled: false, notificationsEnabled: true,
+    };
+    setState(() => ({
       isLoggedIn: false,
+      language: 'EN' as LanguageCode,
+      themeMode: 'system' as ThemeMode,
+      cashPrivacyMode: true,
+      inventory: [],
+      movementLogs: [],
+      expenses: [],
+      payments: [],
+      budget: 0,
+      connections: [],
       landingCompleted: false,
+      signupCompleted: false,
       onboarded: false,
-      onboardingStep: 1
+      onboardingStep: 1,
+      profile: freshProfile,
+      geolocationStatus: 'idle' as const,
+      nearestStores: [],
     }));
   };
 
@@ -1632,21 +1652,49 @@ export default function App() {
       timestamp: new Date().toISOString(),
       email: state.profile.email || undefined,
     });
-    // Update state immediately FIRST so the UI switches to LoginPage
-    setState(s => {
-      const newState = {
-        ...s,
+    // Fully reset state so next user gets a clean slate
+    const freshProfile: UserProfile = {
+      id: 'MER-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+      name: '',
+      phone: '',
+      email: '',
+      shopName: '',
+      city: '',
+      state: '',
+      businessCategory: '',
+      establishedYear: '',
+      gstin: '',
+      address: '',
+      bioAuthEnabled: false,
+      notificationsEnabled: true,
+    };
+    setState(() => {
+      const newState: AppState = {
         isLoggedIn: false,
+        language: 'EN',
+        themeMode: 'system',
+        cashPrivacyMode: true,
+        inventory: [],
+        movementLogs: [],
+        expenses: [],
+        payments: [],
+        budget: 0,
+        connections: [],
         landingCompleted: false,
+        signupCompleted: false,
         onboarded: false,
         onboardingStep: 1,
+        profile: freshProfile,
+        geolocationStatus: 'idle',
+        nearestStores: [],
       };
-      // Persist logged-out state to localStorage right away
+      // Persist clean state to localStorage right away
       localStorage.setItem(STATE_KEY, JSON.stringify(newState));
       return newState;
     });
-    // Then clean up Supabase session in the background (non-blocking)
+    // Clean up both Supabase + Firebase sessions in the background (non-blocking)
     try { await signOut(); } catch { /* ignore */ }
+    try { await logoutFirebase(); } catch { /* ignore */ }
   };
 
   // --- Supabase auth state listener (handles Google OAuth redirect) ---
@@ -1897,6 +1945,8 @@ export default function App() {
         };
       }
       // For other methods (Google, OTP, quick login) — set role + landing if role known
+      // When a Google/Firebase user logs in, use their actual identity data
+      const isGoogleLogin = method === 'google';
       return {
         ...s,
         isLoggedIn: true,
@@ -1904,9 +1954,11 @@ export default function App() {
         landingCompleted: preRole ? true : s.landingCompleted,
         profile: {
           ...s.profile,
-          phone: data?.phone || s.profile.phone,
+          id: data?.uid || s.profile.id,
+          phone: data?.phone || (isGoogleLogin ? '' : s.profile.phone),
           email: data?.email || s.profile.email,
-          shopName: preBusinessName || s.profile.shopName,
+          name: data?.name || (isGoogleLogin ? '' : s.profile.name),
+          shopName: preBusinessName || (isGoogleLogin ? '' : s.profile.shopName),
         },
       };
     });
@@ -1914,11 +1966,15 @@ export default function App() {
 
   const handleStockUpdate = useCallback((skuId: string, type: MovementType, quantity: number, reason: string) => {
     setState(s => {
+      const sku = s.inventory.find(i => i.id === skuId);
+      const unitPrice = sku?.price || 0;
+      const logId = `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const newLogs: StockLog[] = [...s.movementLogs, {
-        id: Math.random().toString(),
+        id: logId,
         skuId,
         type,
         quantity,
+        price: unitPrice,
         reason,
         timestamp: new Date().toISOString()
       }];
@@ -1935,23 +1991,24 @@ export default function App() {
         return item;
       });
       // Auto-generate payment entry from stock movement
-      const sku = s.inventory.find(i => i.id === skuId);
-      const amount = sku ? Math.round(quantity * (sku.price || 0) * 100) / 100 : 0;
+      const amount = sku ? Math.round(quantity * unitPrice * 100) / 100 : 0;
       let autoPayments = [...(s.payments || [])];
       if (amount > 0) {
         // Purchase (IN)  → PAID  (money goes out to buy stock)
         // Sale (OUT)     → RECEIVED (money comes in from selling)
-        // Damage/Expired/Return (OUT) → PAID (loss)
+        // Damage/Expired/Return (OUT) → PAID (loss — no money changes hands but records the loss value)
         const payType: PaymentType = type === 'OUT' && reason === 'Sale' ? 'RECEIVED' : 'PAID';
         autoPayments = [{
-          id: `pay_stk_${Date.now()}`,
+          id: `pay_stk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           party: sku?.name ?? 'Stock',
           amount,
           type: payType,
           method: 'CASH' as PaymentMethod,
           status: 'COMPLETED' as PaymentStatus,
           date: new Date().toISOString(),
-          note: `${reason}: ${quantity} ${sku?.unit ?? 'units'} (auto)`,
+          note: `${reason}: ${quantity} ${sku?.unit ?? 'units'} @ ₹${unitPrice}/${sku?.unit ?? 'unit'}`,
+          source: 'stock' as const,
+          sourceId: logId,
         }, ...autoPayments];
       }
       return { ...s, inventory: newInventory, movementLogs: newLogs, payments: autoPayments };
@@ -2422,6 +2479,38 @@ export default function App() {
                                 {/* Action cell */}
                                 <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
                                   <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      if (val <= 0) return;
+                                      // Prevent duplicate inventory payments for the same SKU
+                                      const alreadyPaid = (state.payments || []).some(p => p.source === 'inventory' && p.sourceId === item.id);
+                                      if (alreadyPaid) {
+                                        showToast('Payment already recorded for this item');
+                                        return;
+                                      }
+                                      const entry: Payment = {
+                                        id: `pay_inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                                        party: item.name,
+                                        amount: Math.round(val * 100) / 100,
+                                        type: 'PAID',
+                                        method: 'CASH',
+                                        status: 'COMPLETED',
+                                        date: new Date().toISOString(),
+                                        note: `Inventory value: ${item.name} (${item.currentStock} ${item.unit} × ₹${item.price})`,
+                                        source: 'inventory',
+                                        sourceId: item.id,
+                                      };
+                                      setState(s => ({ ...s, payments: [entry, ...(s.payments || [])] }));
+                                      showToast(`₹${val.toLocaleString('en-IN')} payment recorded`);
+                                    }}
+                                    title="Record Payment"
+                                    className="h-8 px-2 rounded-xl text-xs font-black flex items-center gap-1 transition-all duration-150 hover:scale-105 active:scale-95"
+                                    style={{ background: 'rgba(16,185,129,0.08)', color: '#059669', border: '1px solid rgba(16,185,129,0.18)' }}
+                                  >
+                                    <CreditCard className="w-3 h-3" />
+                                    <span className="hidden sm:inline">Pay</span>
+                                  </button>
+                                  <button
                                     onClick={e => { e.stopPropagation(); setStockUpdateItem(item); }}
                                     className="h-8 px-3 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95"
                                     style={{ background: 'rgba(99,102,241,0.09)', color: '#4f46e5', border: '1px solid rgba(99,102,241,0.18)' }}
@@ -2511,6 +2600,32 @@ export default function App() {
           movementLogs={state.movementLogs}
           onClose={() => setInvSelectedItem(null)}
           onUpdate={(sku) => { setStockUpdateItem(sku); setInvSelectedItem(null); }}
+          onAddPayment={(sku) => {
+            const stockValue = sku.currentStock * (sku.price || 0);
+            if (stockValue <= 0) return;
+            // Prevent duplicate inventory payments for the same SKU
+            const alreadyPaid = (state.payments || []).some(p => p.source === 'inventory' && p.sourceId === sku.id);
+            if (alreadyPaid) {
+              showToast('Payment already recorded for this item');
+              setInvSelectedItem(null);
+              return;
+            }
+            const entry: Payment = {
+              id: `pay_inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              party: sku.name,
+              amount: Math.round(stockValue * 100) / 100,
+              type: 'PAID',
+              method: 'CASH',
+              status: 'COMPLETED',
+              date: new Date().toISOString(),
+              note: `Inventory value: ${sku.name} (${sku.currentStock} ${sku.unit} × ₹${sku.price})`,
+              source: 'inventory',
+              sourceId: sku.id,
+            };
+            setState(s => ({ ...s, payments: [entry, ...(s.payments || [])] }));
+            setInvSelectedItem(null);
+            showToast(`₹${stockValue.toLocaleString('en-IN')} payment recorded for ${sku.name}`);
+          }}
         />
         <DeleteConfirmModal
           item={deleteConfirmItem}
@@ -2754,7 +2869,8 @@ const InventoryDetailPanel: React.FC<{
   movementLogs: StockLog[];
   onClose: () => void;
   onUpdate: (item: SKU) => void;
-}> = ({ item, movementLogs, onClose, onUpdate }) => {
+  onAddPayment?: (item: SKU) => void;
+}> = ({ item, movementLogs, onClose, onUpdate, onAddPayment }) => {
   const isOpen = !!item;
 
   const recentLogs = useMemo(() =>
@@ -2968,7 +3084,7 @@ const InventoryDetailPanel: React.FC<{
         </div>
 
         {/* Panel footer */}
-        <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900">
+        <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900 space-y-2">
           <button
             onClick={() => { if (item) onUpdate(item); }}
             className="w-full h-11 rounded-2xl font-black text-sm flex items-center justify-center gap-2 text-white transition-all hover:opacity-90 active:scale-[0.98]"
@@ -2976,6 +3092,15 @@ const InventoryDetailPanel: React.FC<{
           >
             <RefreshCw className="w-4 h-4" /> Update Stock
           </button>
+          {onAddPayment && item && (
+            <button
+              onClick={() => onAddPayment(item)}
+              className="w-full h-10 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98]"
+              style={{ background: 'rgba(16,185,129,0.1)', color: '#059669', border: '1.5px solid rgba(16,185,129,0.25)' }}
+            >
+              <CreditCard className="w-4 h-4" /> Record Payment
+            </button>
+          )}
         </div>
       </div>
     </>
@@ -4378,6 +4503,38 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
     return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   };
 
+  // ── Helper: check if a payment already exists for a given expense ──
+  const hasPaymentForExpense = (expenseId: string): boolean => {
+    return (state.payments || []).some(p =>
+      (p.source === 'expense' && p.sourceId === expenseId) ||
+      (p.note?.includes(`[exp:${expenseId}]`))
+    );
+  };
+
+  // ── Add an expense as a payment entry ──
+  const addExpenseToPayment = (e: Expense) => {
+    if (hasPaymentForExpense(e.id)) return; // prevent duplicates
+    const paymentId = `pay_exp_manual_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const entry: Payment = {
+      id: paymentId,
+      party: e.category,
+      amount: e.amount,
+      type: 'PAID',
+      method: 'CASH',
+      status: 'COMPLETED',
+      date: e.date,
+      note: `Expense: ${e.description || e.category} [exp:${e.id}]`,
+      source: 'expense',
+      sourceId: e.id,
+    };
+    setState(s => ({
+      ...s,
+      payments: [entry, ...(s.payments || [])],
+      expenses: s.expenses.map(ex => ex.id === e.id ? { ...ex, linkedPaymentId: paymentId } : ex),
+    }));
+    showToastMsg(`₹${e.amount.toLocaleString('en-IN')} added to payments`);
+  };
+
   // Month display
   const monthDisplay = useMemo(() => {
     const [y, m] = selectedMonth.split('-').map(Number);
@@ -4415,19 +4572,22 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
         description: desc,
         date: selectedDate,
       });
+      const paymentId = `pay_exp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const autoPayment: Payment = {
-        id: `pay_exp_${Date.now()}`,
+        id: paymentId,
         party: category,
         amount: Number(amount),
         type: 'PAID',
         method: 'CASH',
         status: 'COMPLETED',
         date: selectedDate,
-        note: `Expense: ${desc || category} (auto)`,
+        note: `Expense: ${desc || category} [exp:${newExpense.id}]`,
+        source: 'expense',
+        sourceId: newExpense.id,
       };
       setState(s => ({
         ...s,
-        expenses: [newExpense, ...s.expenses],
+        expenses: [{ ...newExpense, linkedPaymentId: paymentId }, ...s.expenses],
         payments: [autoPayment, ...(s.payments || [])],
       }));
       setSaveSuccess(true);
@@ -4435,14 +4595,33 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
       setTimeout(() => { setShowAdd(false); setSaveSuccess(false); }, 1000);
       setAmount(''); setDesc(''); setExpenseDate(new Date().toISOString().slice(0, 10));
     } catch {
+      const fallbackId = `exp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const paymentId = `pay_exp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const fallback: Expense = {
-        id: Math.random().toString(),
+        id: fallbackId,
         amount: Number(amount),
         category,
         description: desc,
         date: selectedDate,
+        linkedPaymentId: paymentId,
       };
-      setState(s => ({ ...s, expenses: [fallback, ...s.expenses] }));
+      const offlinePayment: Payment = {
+        id: paymentId,
+        party: category,
+        amount: Number(amount),
+        type: 'PAID',
+        method: 'CASH',
+        status: 'COMPLETED',
+        date: selectedDate,
+        note: `Expense: ${desc || category} [exp:${fallbackId}] (offline)`,
+        source: 'expense',
+        sourceId: fallbackId,
+      };
+      setState(s => ({
+        ...s,
+        expenses: [fallback, ...s.expenses],
+        payments: [offlinePayment, ...(s.payments || [])],
+      }));
       setSaveSuccess(true);
       showToastMsg(`₹${Number(amount).toLocaleString()} expense added (offline)`);
       setTimeout(() => { setShowAdd(false); setSaveSuccess(false); }, 1000);
@@ -4454,7 +4633,12 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
 
   const handleDelete = async (id: string) => {
     try { await expensesServiceDelete(id); } catch { /* ignore */ }
-    setState(s => ({ ...s, expenses: s.expenses.filter(e => e.id !== id) }));
+    setState(s => ({
+      ...s,
+      expenses: s.expenses.filter(e => e.id !== id),
+      // Also remove linked payment(s) for this expense
+      payments: (s.payments || []).filter(p => !(p.source === 'expense' && p.sourceId === id)),
+    }));
     setDeleteId(null);
     showToastMsg('Expense deleted');
   };
@@ -4840,10 +5024,26 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                             </button>
                           </div>
                         ) : (
-                          <button onClick={() => setDeleteId(e.id)}
-                            className="w-7 h-7 rounded-lg opacity-0 group-hover:opacity-100 transition-all text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/15 flex items-center justify-center">
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {/* Add to Payment button */}
+                            {hasPaymentForExpense(e.id) ? (
+                              <span className="h-7 px-2 rounded-lg text-[9px] font-black flex items-center gap-1 text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/30">
+                                <CheckCircle className="w-3 h-3" /> In Payments
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => addExpenseToPayment(e)}
+                                title="Add to Payments"
+                                className="h-7 px-2 rounded-lg text-[9px] font-black flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-transparent hover:border-indigo-200 dark:hover:border-indigo-700/30"
+                              >
+                                <CreditCard className="w-3 h-3" /> + Payment
+                              </button>
+                            )}
+                            <button onClick={() => setDeleteId(e.id)}
+                              className="w-7 h-7 rounded-lg opacity-0 group-hover:opacity-100 transition-all text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/15 flex items-center justify-center">
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -5637,7 +5837,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
     if (!form.party.trim()) { setFormError('Party name is required.'); return; }
     if (!form.amount || Number(form.amount) <= 0) { setFormError('Enter a valid amount.'); return; }
     const entry: Payment = {
-      id: editId || `pay_${Date.now()}`,
+      id: editId || `pay_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       party: form.party.trim(),
       amount: Number(form.amount),
       type: form.type,
@@ -5645,18 +5845,30 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
       status: form.status,
       date: new Date(form.date).toISOString(),
       note: form.note.trim() || undefined,
+      source: editId ? undefined : 'manual',
     };
     setState(s => ({
       ...s,
       payments: editId
-        ? (s.payments || []).map(p => p.id === editId ? entry : p)
+        ? (s.payments || []).map(p => p.id === editId ? { ...entry, source: p.source, sourceId: p.sourceId } : p)
         : [entry, ...(s.payments || [])],
     }));
     setShowModal(false);
   };
 
   const deletePayment = (id: string) => {
-    setState(s => ({ ...s, payments: (s.payments || []).filter(p => p.id !== id) }));
+    setState(s => {
+      const toDelete = (s.payments || []).find(p => p.id === id);
+      const newPayments = (s.payments || []).filter(p => p.id !== id);
+      // Unlink expense if this payment was linked to one
+      let newExpenses = s.expenses;
+      if (toDelete?.source === 'expense' && toDelete.sourceId) {
+        newExpenses = s.expenses.map(e =>
+          e.id === toDelete.sourceId ? { ...e, linkedPaymentId: undefined } : e
+        );
+      }
+      return { ...s, payments: newPayments, expenses: newExpenses };
+    });
     setDeleteId(null);
   };
 
@@ -5672,18 +5884,31 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
   }, [payments, search, typeFilter, methodFilter]);
 
   // ── KPIs — single-pass aggregation ──
-  const { totalIn, totalOut, pending, salesFromAuto, expenseFromAuto, stockLossAuto } = useMemo(() => {
-    let tIn = 0, tOut = 0, pend = 0, salesAuto = 0, expAuto = 0, lossAuto = 0;
+  const { totalIn, totalOut, pending, salesFromAuto, expenseFromAuto, stockPurchaseAuto, stockLossAuto } = useMemo(() => {
+    let tIn = 0, tOut = 0, pend = 0, salesAuto = 0, expAuto = 0, purchaseAuto = 0, lossAuto = 0;
+    const lossReasons = ['Damage', 'Expired', 'Return', 'Lost', 'Waste'];
     for (const p of payments) {
-      const note = p.note || '';
       if (p.type === 'RECEIVED' && p.status === 'COMPLETED') tIn += p.amount;
       if (p.type === 'PAID' && p.status === 'COMPLETED') tOut += p.amount;
       if (p.status === 'PENDING') pend++;
-      if (p.type === 'RECEIVED' && note.includes('(auto)')) salesAuto += p.amount;
-      if (p.type === 'PAID' && note.includes('Expense:')) expAuto += p.amount;
-      if (p.type === 'PAID' && note.includes('(auto)') && !note.includes('Expense:')) lossAuto += p.amount;
+      // Source-based categorisation (falls back to note matching for legacy data)
+      const src = p.source;
+      const note = p.note || '';
+      if (src === 'stock' || (!src && (p.id || '').startsWith('pay_stk_'))) {
+        if (p.type === 'RECEIVED') {
+          salesAuto += p.amount;
+        } else if (p.type === 'PAID') {
+          const isLoss = lossReasons.some(r => note.toLowerCase().includes(r.toLowerCase()));
+          if (isLoss) lossAuto += p.amount;
+          else purchaseAuto += p.amount;
+        }
+      } else if (src === 'expense' || (!src && note.includes('Expense:'))) {
+        if (p.type === 'PAID') expAuto += p.amount;
+      } else if (src === 'inventory' || (!src && note.includes('Inventory'))) {
+        if (p.type === 'PAID') purchaseAuto += p.amount;
+      }
     }
-    return { totalIn: tIn, totalOut: tOut, pending: pend, salesFromAuto: salesAuto, expenseFromAuto: expAuto, stockLossAuto: lossAuto };
+    return { totalIn: tIn, totalOut: tOut, pending: pend, salesFromAuto: salesAuto, expenseFromAuto: expAuto, stockPurchaseAuto: purchaseAuto, stockLossAuto: lossAuto };
   }, [payments]);
   const net      = totalIn - totalOut;
   const budgetUsed   = totalOut;
@@ -5693,10 +5918,10 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
   // ── CSV export ──
   const exportCSV = () => {
     const rows = [
-      ['Date', 'Party', 'Type', 'Method', 'Status', 'Amount (₹)', 'Note'],
+      ['Date', 'Party', 'Type', 'Method', 'Status', 'Amount (₹)', 'Source', 'Note'],
       ...filtered.map(p => [
         new Date(p.date).toLocaleDateString('en-IN'),
-        p.party, p.type, p.method, p.status, String(p.amount), p.note || '',
+        p.party, p.type, p.method, p.status, String(p.amount), p.source || 'manual', p.note || '',
       ]),
     ];
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -5782,6 +6007,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                 </div>
                 <div className="mt-3 flex flex-wrap gap-3 text-[10px] font-bold">
                   <span style={{ color: '#f43f5e' }}>Expenses ₹{expenseFromAuto.toLocaleString('en-IN')}</span>
+                  <span style={{ color: '#6366f1' }}>Purchases ₹{stockPurchaseAuto.toLocaleString('en-IN')}</span>
                   <span style={{ color: '#f59e0b' }}>Stock loss ₹{stockLossAuto.toLocaleString('en-IN')}</span>
                   <span style={{ color: '#10b981' }}>Sales ₹{salesFromAuto.toLocaleString('en-IN')}</span>
                 </div>
@@ -5882,11 +6108,17 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                 <div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <p className="text-sm font-black text-slate-800 dark:text-white truncate">{p.party}</p>
-                    {(p.note || '').includes('(auto)') && (
-                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md shrink-0" style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1' }}>AUTO</span>
+                    {(p.source === 'expense' || (!p.source && (p.note || '').includes('Expense:'))) && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md shrink-0" style={{ background: 'rgba(244,63,94,0.1)', color: '#e11d48' }}>EXPENSE</span>
+                    )}
+                    {(p.source === 'inventory' || (!p.source && (p.note || '').includes('Inventory'))) && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md shrink-0" style={{ background: 'rgba(245,158,11,0.1)', color: '#d97706' }}>INVENTORY</span>
+                    )}
+                    {(p.source === 'stock' || (!p.source && (p.id || '').startsWith('pay_stk_'))) && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md shrink-0" style={{ background: 'rgba(16,185,129,0.1)', color: '#059669' }}>STOCK</span>
                     )}
                   </div>
-                  {p.note && <p className="text-[10px] font-semibold text-slate-400 truncate">{p.note.replace(' (auto)', '')}</p>}
+                  {p.note && <p className="text-[10px] font-semibold text-slate-400 truncate">{p.note.replace(/\s*\(auto\)/, '').replace(/\s*\(offline\)/, '').replace(/\s*\[exp:[^\]]*\]/, '')}</p>}
                 </div>
                 <span className="text-[10px] font-black px-2 py-1 rounded-lg w-fit"
                   style={{ color: methodBadge[p.method], background: methodBg[p.method] }}>{p.method}</span>

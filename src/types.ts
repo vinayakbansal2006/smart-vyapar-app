@@ -34,11 +34,13 @@ export interface Expense {
   amount: number;
   description: string;
   date: string;
+  linkedPaymentId?: string;
 }
 
 export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'BANK';
 export type PaymentStatus = 'COMPLETED' | 'PENDING';
 export type PaymentType = 'RECEIVED' | 'PAID';
+export type PaymentSource = 'expense' | 'stock' | 'inventory' | 'manual';
 
 export interface Payment {
   id: string;
@@ -49,6 +51,8 @@ export interface Payment {
   status: PaymentStatus;
   note?: string;
   date: string;
+  source?: PaymentSource;
+  sourceId?: string;
 }
 
 export interface BusinessConnection {

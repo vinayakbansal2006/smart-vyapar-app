@@ -10,6 +10,7 @@ import {
   sendPhoneOtp,
   verifyPhoneOtp,
   upsertUserProfile,
+  firebaseGoogleLogin,
 } from '../../services/authService';
 
 /* ─── Types ─────────────────────────────────────────────────────────────────── */
@@ -652,14 +653,27 @@ const LoginPage: React.FC<LoginPageProps> = ({
     setGoogleLoading(true);
     setAuthError('');
     try {
-      await signInWithGoogle();
+      // Use Firebase popup-based Google sign-in (saves user to Firestore too)
+      const firebaseUser = await firebaseGoogleLogin();
+      if (firebaseUser) {
+        onAuthSuccess('google', {
+          uid: firebaseUser.uid,
+          name: firebaseUser.displayName,
+          email: firebaseUser.email,
+          photo: firebaseUser.photoURL,
+          role: selectedRole,
+        });
+      }
     } catch (err: any) {
       const msg = err?.message || '';
-      if (msg.includes('SSL') || msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')) {
+      if (msg.includes('popup-closed-by-user') || msg.includes('cancelled')) {
+        setAuthError('Sign-in cancelled. Please try again.');
+      } else if (msg.includes('SSL') || msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')) {
         setAuthError('Server is temporarily unavailable. Please use Email/Password login or try again later.');
       } else {
         setAuthError(msg || 'Google sign-in failed. Please try again.');
       }
+    } finally {
       setGoogleLoading(false);
     }
   };

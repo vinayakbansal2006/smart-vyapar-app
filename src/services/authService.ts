@@ -1,4 +1,5 @@
-import { supabase } from './supabaseClient';
+import { supabase } from '../backend/supabase';
+import { loginWithGoogle as firebaseGoogleLogin, logoutFirebase } from '../backend/firebase';
 
 // ─── Google OAuth ────────────────────────────────────────────────────────────
 
@@ -128,3 +129,14 @@ export function onAuthStateChange(
   const { data } = supabase.auth.onAuthStateChange(callback);
   return () => data.subscription.unsubscribe();
 }
+
+// ─── Firebase Google Auth (popup-based) ──────────────────────────────────────
+
+/**
+ * Sign in with Google via Firebase Auth (popup flow).
+ * This also saves the user to the Firestore `users` collection.
+ * Use this when you want the Firebase-native Google login experience
+ * instead of the Supabase OAuth redirect flow.
+ */
+export { firebaseGoogleLogin, logoutFirebase };
+
