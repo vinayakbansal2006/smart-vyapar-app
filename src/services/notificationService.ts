@@ -32,13 +32,14 @@ export function subscribeToConnectionNotifications(
       },
       (payload) => {
         const row = payload.new as any;
-        // Someone followed us
-        if (row.following_id === userId && row.follower_id !== userId) {
+        // Someone sent us a request
+        if (row.receiver_id === userId && row.sender_id !== userId) {
+          const roleLabel = row.sender_role ? ` (${row.sender_role.charAt(0) + row.sender_role.slice(1).toLowerCase()})` : '';
           onNotification({
             id: `notif_conn_${row.id}`,
             type: 'connection',
-            title: 'New Follower',
-            message: `A business (${row.follower_id.slice(0, 12)}…) started following you`,
+            title: 'New Connection Request',
+            message: `A business${roleLabel} requested to connect with you.`,
             timestamp: new Date().toISOString(),
             read: false,
           });
@@ -54,12 +55,12 @@ export function subscribeToConnectionNotifications(
       },
       (payload) => {
         const row = payload.new as any;
-        if (row.status === 'ACCEPTED' && row.follower_id === userId) {
+        if (row.status === 'ACCEPTED' && row.sender_id === userId) {
           onNotification({
             id: `notif_accept_${row.id}`,
             type: 'connection',
-            title: 'Follow Accepted',
-            message: `Your follow request was accepted by ${row.following_id.slice(0, 12)}…`,
+            title: 'Request Accepted',
+            message: `Your connection request was accepted by ${row.receiver_id.slice(0, 12)}…`,
             timestamp: new Date().toISOString(),
             read: false,
           });

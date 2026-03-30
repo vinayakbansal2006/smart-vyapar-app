@@ -15,11 +15,14 @@ import { UserRole, ShopType, LanguageCode, SKU, AppState, UserProfile, StockLog,
 import { TRANSLATIONS, CATEGORIES, UNITS, INDIAN_LANGUAGES, EXPENSE_CATEGORIES } from './constants';
 import { getInventoryInsights, predictSKUMetadata, identifyProductFromImage, SKUPrediction } from './services/geminiService';
 import { useGeolocation } from './hooks/useGeolocation';
-import { signInWithGoogle, sendPhoneOtp, verifyPhoneOtp, upsertUserProfile, onAuthStateChange, getSession, signOut, logoutFirebase } from './services/authService';
+import { signInWithGoogle, sendPhoneOtp, verifyPhoneOtp, upsertUserProfile, onAuthStateChange, getSession, signOut } from './services/authService';
 import LoginPage from './components/auth/LoginPage';
+import SkuVelocityPage from './components/inventory/SkuVelocityPage';
+import CampaignsPage from './components/campaigns/CampaignsPage';
 import {
   followBusiness as connectionsServiceFollow,
   acceptConnection as connectionsServiceAccept,
+  rejectConnection as connectionsServiceReject,
   unfollowBusiness as connectionsServiceUnfollow,
   fetchConnections as connectionsServiceFetchConnections,
   searchBusinesses as connectionsServiceSearch,
@@ -306,6 +309,38 @@ const removeLoginRecord = (email?: string, businessName?: string, roleId?: UserR
   }
 })();
 // --- END ONE-TIME WIPE ---
+
+// --- Per-email Profile Registry (for returning user detection) ---
+const USER_PROFILES_KEY = 'vyaparika_user_profiles';
+
+interface SavedUserProfile {
+  email: string;
+  role?: UserRole;
+  language?: string;
+  profile: Partial<UserProfile>;
+  savedAt: string;
+}
+
+const getSavedUserProfiles = (): SavedUserProfile[] => {
+  try { return JSON.parse(localStorage.getItem(USER_PROFILES_KEY) || '[]'); }
+  catch { return []; }
+};
+
+const findSavedProfileByEmail = (email: string): SavedUserProfile | null =>
+  getSavedUserProfiles().find(p => p.email.toLowerCase() === email.toLowerCase()) ?? null;
+
+const saveUserProfileToRegistry = (email: string, role: UserRole | undefined, language: string | undefined, profile: Partial<UserProfile>) => {
+  if (!email) return;
+  const existing = getSavedUserProfiles().filter(p => p.email.toLowerCase() !== email.toLowerCase());
+  existing.push({ email, role, language, profile, savedAt: new Date().toISOString() });
+  localStorage.setItem(USER_PROFILES_KEY, JSON.stringify(existing));
+};
+
+const removeProfileFromRegistry = (email: string) => {
+  if (!email) return;
+  const updated = getSavedUserProfiles().filter(p => p.email.toLowerCase() !== email.toLowerCase());
+  localStorage.setItem(USER_PROFILES_KEY, JSON.stringify(updated));
+};
 
 // --- Account Registry ---
 const STATE_KEY = 'vyaparika_state_v2';
@@ -1058,9 +1093,8 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
       timestamp: new Date().toISOString(),
       email: state.profile.email || undefined
     });
-    // Clear Supabase + Firebase sessions
+    // Clear Supabase session
     try { await signOut(); } catch { /* ignore */ }
-    try { await logoutFirebase(); } catch { /* ignore */ }
     // Full state reset so next user gets clean slate
     const freshProfile: UserProfile = {
       id: 'MER-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
@@ -1449,6 +1483,8 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
                     if (email) deleteAccountFromRegistry(email);
                     // Also try to delete by profile.id (which stores appId)
                     if (profileId && profileId !== email) deleteAccountFromRegistry(profileId);
+                    // Remove this user's saved profile from registry (so they get onboarding again)
+                    if (email) removeProfileFromRegistry(email);
                     // Remove this business from quick login records
                     removeLoginRecord(email || undefined, state.profile.shopName || undefined, state.role as UserRole);
                     // Wipe all app storage keys (state only, NOT accounts registry)
@@ -1585,7 +1621,14 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
           </div>
 
           <Button fullWidth className="h-14 text-base font-black btn-glow" disabled={!canSave}
-            onClick={() => setState(s => ({ ...s, profile: { ...s.profile, name: name.trim(), phone, city: city.trim(), state: stateVal.trim(), address: address.trim() } }))}>
+            onClick={() => setState(s => {
+              const updatedProfile = { ...s.profile, name: name.trim(), phone, city: city.trim(), state: stateVal.trim(), address: address.trim() };
+              // Save completed profile to registry for future logins
+              if (updatedProfile.email) {
+                saveUserProfileToRegistry(updatedProfile.email, s.role as UserRole, s.language, updatedProfile);
+              }
+              return { ...s, profile: updatedProfile };
+            })}>
             <CheckCircle className="w-5 h-5" /> Save & Enter Dashboard
           </Button>
           <p className="text-[10px] text-slate-400 font-bold text-center uppercase tracking-widest">* Required fields must be completed</p>
@@ -1644,6 +1687,10 @@ export default function App() {
 
   const handleAppLogout = async () => {
     loggedOutRef.current = true;
+    // Save completed profile to registry so returning user skips onboarding
+    if (state.profile.email && state.onboarded) {
+      saveUserProfileToRegistry(state.profile.email, state.role as UserRole, state.language, state.profile);
+    }
     saveLoginRecord({
       businessName: state.profile.shopName || 'Business Account',
       roleName: (state.role as string) || 'Business',
@@ -1692,9 +1739,8 @@ export default function App() {
       localStorage.setItem(STATE_KEY, JSON.stringify(newState));
       return newState;
     });
-    // Clean up both Supabase + Firebase sessions in the background (non-blocking)
+    // Clean up Supabase session in the background (non-blocking)
     try { await signOut(); } catch { /* ignore */ }
-    try { await logoutFirebase(); } catch { /* ignore */ }
   };
 
   // --- Supabase auth state listener (handles Google OAuth redirect) ---
@@ -1717,12 +1763,40 @@ export default function App() {
               avatar_url: meta.avatar_url || meta.picture,
             });
           } catch { /* Supabase may be down — continue without it */ }
-          // Update local app state
+          // Update local app state — check if returning user
+          const savedProfile = user.email ? findSavedProfileByEmail(user.email) : null;
           setState(s => {
             if (s.isLoggedIn) return s; // Already logged in, skip
+            // Returning user — restore saved profile and skip onboarding
+            if (savedProfile) {
+              return {
+                ...s,
+                isLoggedIn: true,
+                role: savedProfile.role || s.role,
+                language: (savedProfile.language as LanguageCode) || s.language,
+                landingCompleted: true,
+                signupCompleted: true,
+                onboarded: true,
+                onboardingStep: 4,
+                profile: {
+                  ...s.profile,
+                  ...savedProfile.profile,
+                  id: user.id,
+                  email: user.email || s.profile.email,
+                  phone: user.phone || (savedProfile.profile.phone as string) || s.profile.phone,
+                  name: meta.full_name || meta.name || (savedProfile.profile.name as string) || s.profile.name,
+                },
+              };
+            }
+            // New user — mark as logged in and restore pending role from OAuth flow
+            const pendingOAuthRole = localStorage.getItem('vyaparika_pending_role_oauth') as UserRole | null;
+            if (pendingOAuthRole) {
+              localStorage.removeItem('vyaparika_pending_role_oauth');
+            }
             return {
               ...s,
               isLoggedIn: true,
+              role: pendingOAuthRole || s.role,
               profile: {
                 ...s.profile,
                 id: user.id,
@@ -1743,17 +1817,47 @@ export default function App() {
       if (session?.user && !state.isLoggedIn) {
         const user = session.user;
         const meta = user.user_metadata || {};
-        setState(s => ({
-          ...s,
-          isLoggedIn: true,
-          profile: {
-            ...s.profile,
-            id: user.id,
-            email: user.email || s.profile.email,
-            phone: user.phone || s.profile.phone,
-            name: meta.full_name || meta.name || s.profile.name,
-          },
-        }));
+        const savedProfile = user.email ? findSavedProfileByEmail(user.email) : null;
+        setState(s => {
+          // Returning user — restore saved profile and skip onboarding
+          if (savedProfile) {
+            return {
+              ...s,
+              isLoggedIn: true,
+              role: savedProfile.role || s.role,
+              language: (savedProfile.language as LanguageCode) || s.language,
+              landingCompleted: true,
+              signupCompleted: true,
+              onboarded: true,
+              onboardingStep: 4,
+              profile: {
+                ...s.profile,
+                ...savedProfile.profile,
+                id: user.id,
+                email: user.email || s.profile.email,
+                phone: user.phone || (savedProfile.profile.phone as string) || s.profile.phone,
+                name: meta.full_name || meta.name || (savedProfile.profile.name as string) || s.profile.name,
+              },
+            };
+          }
+          // New user — mark as logged in and restore pending role from OAuth flow
+          const pendingOAuthRole = localStorage.getItem('vyaparika_pending_role_oauth') as UserRole | null;
+          if (pendingOAuthRole) {
+            localStorage.removeItem('vyaparika_pending_role_oauth');
+          }
+          return {
+            ...s,
+            isLoggedIn: true,
+            role: pendingOAuthRole || s.role,
+            profile: {
+              ...s.profile,
+              id: user.id,
+              email: user.email || s.profile.email,
+              phone: user.phone || s.profile.phone,
+              name: meta.full_name || meta.name || s.profile.name,
+            },
+          };
+        });
       }
     }).catch(() => {
       console.warn('[Vyaparika] Supabase getSession failed — running in offline mode.');
@@ -1797,6 +1901,42 @@ export default function App() {
 
     return () => { unsubConn(); unsubExp(); };
   }, [state.isLoggedIn, state.profile.id, addNotification]);
+
+  // ── Fetch expenses from Supabase on login + realtime subscription ──
+  // Lives at App level so data persists across tab navigation
+  useEffect(() => {
+    if (!state.isLoggedIn || !state.profile.id) return;
+    const myId = state.profile.id;
+    let cancelled = false;
+
+    const loadExpenses = async () => {
+      try {
+        const rows = await expensesServiceFetch(myId);
+        if (cancelled) return;
+        setState(s => {
+          // Merge: keep any local-only (offline) expenses not yet in Supabase
+          const supabaseIds = new Set(rows.map(r => r.id));
+          const localOnly = s.expenses.filter(e => !supabaseIds.has(e.id) && e.id.startsWith('exp_'));
+          return { ...s, expenses: [...rows, ...localOnly] };
+        });
+      } catch (err) {
+        console.warn('[Vyaparika] Failed to fetch expenses from Supabase:', err);
+        // Keep existing local expenses on failure
+      }
+    };
+    loadExpenses();
+
+    const unsubExpData = expensesServiceSubscribe(myId, (rows) => {
+      if (cancelled) return;
+      setState(s => {
+        const supabaseIds = new Set(rows.map(r => r.id));
+        const localOnly = s.expenses.filter(e => !supabaseIds.has(e.id) && e.id.startsWith('exp_'));
+        return { ...s, expenses: [...rows, ...localOnly] };
+      });
+    });
+
+    return () => { cancelled = true; unsubExpData(); };
+  }, [state.isLoggedIn, state.profile.id]);
 
   // Check stock-level notifications whenever inventory changes — batched into single update
   useEffect(() => {
@@ -1945,7 +2085,33 @@ export default function App() {
         };
       }
       // For other methods (Google, OTP, quick login) — set role + landing if role known
-      // When a Google/Firebase user logs in, use their actual identity data
+      // Check if this is a returning Google/OAuth user with a saved profile
+      const userEmail = data?.email as string | undefined;
+      const savedProfile = userEmail ? findSavedProfileByEmail(userEmail) : null;
+
+      if (savedProfile) {
+        // Returning Google/OAuth user — restore saved profile, skip all onboarding
+        return {
+          ...s,
+          isLoggedIn: true,
+          role: preRole || savedProfile.role || s.role,
+          language: (savedProfile.language as LanguageCode) || s.language,
+          landingCompleted: true,
+          signupCompleted: true,
+          onboarded: true,
+          onboardingStep: 4,
+          profile: {
+            ...s.profile,
+            ...savedProfile.profile,
+            id: data?.uid || s.profile.id,
+            email: userEmail || s.profile.email,
+            phone: data?.phone || (savedProfile.profile.phone as string) || s.profile.phone,
+            name: data?.name || (savedProfile.profile.name as string) || s.profile.name,
+          },
+        };
+      }
+
+      // New Google/OAuth user — show onboarding
       const isGoogleLogin = method === 'google';
       return {
         ...s,
@@ -2018,11 +2184,11 @@ export default function App() {
 
   const navItems = useMemo(() => [
     { id: 'dashboard', icon: LayoutDashboard, label: t.dashboard },
-    { id: 'inventory', icon: Package, label: t.inventory },
-    { id: 'expenses', icon: CreditCard, label: t.expenses },
+    { id: 'inventory', icon: Package, label: state.role === UserRole.MANUFACTURER ? 'SKU Velocity' : t.inventory },
+    { id: 'expenses', icon: CreditCard, label: state.role === UserRole.MANUFACTURER ? 'Campaigns' : t.expenses },
     { id: 'network', icon: Globe, label: t.connections },
     { id: 'insights', icon: BrainCircuit, label: t.insights },
-  ], [t.dashboard, t.inventory, t.expenses, t.connections, t.insights]);
+  ], [t.dashboard, t.inventory, t.expenses, t.connections, t.insights, state.role]);
 
   if (isSplashActive) return <SplashScreen onFinish={() => setIsSplashActive(false)} />;
 
@@ -2104,7 +2270,14 @@ export default function App() {
               <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-3 font-display">Cash Safe Promise</h2>
               <p className="text-slate-500 dark:text-slate-400 font-medium mb-2">Your financial data stays local &amp; encrypted.</p>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">We never share your revenue data.</p>
-              <Button fullWidth className="h-14 text-base btn-glow" onClick={() => setState(s => ({ ...s, onboarded: true }))}>
+              <Button fullWidth className="h-14 text-base btn-glow" onClick={() => setState(s => {
+                const newState = { ...s, onboarded: true };
+                // Save completed profile to registry for future logins
+                if (s.profile.email) {
+                  saveUserProfileToRegistry(s.profile.email, s.role as UserRole, s.language, s.profile);
+                }
+                return newState;
+              })}>
                 <Sparkles className="w-4 h-4" /> Enter Dashboard
               </Button>
             </div>
@@ -2263,7 +2436,11 @@ export default function App() {
           ) : activeTab === 'admin' ? (
             <ErrorBoundary><AdminModule state={state} setState={setState} t={t} onDeleteAccount={() => setLastLogins(getLastLogins())} onLogout={handleAppLogout} /></ErrorBoundary>
           ) : activeTab === 'expenses' ? (
-            <ErrorBoundary><ExpensesModule state={state} setState={setState} t={t} /></ErrorBoundary>
+            state.role === UserRole.MANUFACTURER ? (
+              <ErrorBoundary><CampaignsPage /></ErrorBoundary>
+            ) : (
+              <ErrorBoundary><ExpensesModule state={state} setState={setState} t={t} /></ErrorBoundary>
+            )
           ) : activeTab === 'network' ? (
             <ErrorBoundary><NetworkModule state={state} setState={setState} t={t} /></ErrorBoundary>
           ) : activeTab === 'payments' ? (
@@ -2277,7 +2454,11 @@ export default function App() {
                   {state.role === UserRole.MANUFACTURER && <ManufacturerDashboard state={state} t={t} />}
                 </>
               )}
-              {activeTab === 'inventory' && (() => {
+              {activeTab === 'inventory' && (state.role === UserRole.MANUFACTURER ? (
+                <ErrorBoundary>
+                  <SkuVelocityPage onAddSku={() => setActiveTab('admin')} />
+                </ErrorBoundary>
+              ) : (() => {
                 // Single-pass computation for all inventory stats
                 let invTotalValue = 0;
                 let invAlertCount = 0;
@@ -2567,7 +2748,7 @@ export default function App() {
 
                   </div>
                 );
-              })()}
+              })())}
             </div>
           )}
         </div>
@@ -4215,114 +4396,132 @@ const RetailerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) 
     const totalValue = state.inventory.reduce((acc, curr) => acc + (curr.currentStock * (curr.price || 0)), 0);
     const lowStock = state.inventory.filter(i => i.status === 'LOW' || i.status === 'CRITICAL').length;
     const totalExpenses = state.expenses.reduce((acc, curr) => acc + curr.amount, 0);
-    return { total: state.inventory.length, totalStock, totalValue, lowStock, totalExpenses };
-  }, [state.inventory, state.expenses]);
+    const totalPaymentsIn = (state.payments || []).filter(p => p.type === 'RECEIVED' && p.status === 'COMPLETED').reduce((a, p) => a + p.amount, 0);
+    const totalPaymentsOut = (state.payments || []).filter(p => p.type === 'PAID' && p.status === 'COMPLETED').reduce((a, p) => a + p.amount, 0);
+    const netBalance = totalPaymentsIn - totalPaymentsOut;
+    return { total: state.inventory.length, totalStock, totalValue, lowStock, totalExpenses, totalPaymentsIn, totalPaymentsOut, netBalance };
+  }, [state.inventory, state.expenses, state.payments]);
+
+  // Greeting
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good Morning';
+    if (h < 17) return 'Good Afternoon';
+    if (h < 21) return 'Good Evening';
+    return 'Good Night';
+  }, []);
+
+  const recentExpenses = useMemo(() => {
+    return [...state.expenses].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+  }, [state.expenses]);
 
   const kpiCards = [
     {
-      label: t.totalItems, value: stats.total,
-      sub: `${stats.totalStock} units total`,
-      gradient: 'from-indigo-500 to-violet-600',
-      glow: 'rgba(99,102,241,0.35)',
-      icon: Layers, iconBg: 'bg-white/20',
-      textColor: 'text-white'
+      label: t.totalItems, value: String(stats.total),
+      sub: `${stats.totalStock} units in stock`,
+      icon: Layers, color: '#6366f1',
+      bg: 'rgba(99,102,241,0.08)', bd: 'rgba(99,102,241,0.18)'
     },
     {
-      label: 'Stock Value', value: `₹${(stats.totalValue/1000).toFixed(1)}k`,
-      sub: stats.totalValue > 0 ? 'inventory assets' : 'add items to track',
-      gradient: 'from-emerald-400 to-teal-600',
-      glow: 'rgba(16,185,129,0.35)',
-      icon: TrendingUp, iconBg: 'bg-white/20',
-      textColor: 'text-white'
+      label: 'Stock Value', value: `\u20b9${stats.totalValue > 999 ? (stats.totalValue / 1000).toFixed(1) + 'k' : stats.totalValue.toLocaleString()}`,
+      sub: 'inventory assets',
+      icon: TrendingUp, color: '#10b981',
+      bg: 'rgba(16,185,129,0.08)', bd: 'rgba(16,185,129,0.18)'
     },
     {
-      label: t.lowStock, value: stats.lowStock,
-      sub: stats.lowStock > 0 ? 'needs reorder' : 'all stocked up!',
-      gradient: stats.lowStock > 0 ? 'from-rose-400 to-rose-600' : 'from-slate-400 to-slate-500',
-      glow: 'rgba(244,63,94,0.35)',
-      icon: AlertTriangle, iconBg: 'bg-white/20',
-      textColor: 'text-white'
+      label: t.totalExpenses, value: `\u20b9${stats.totalExpenses.toLocaleString()}`,
+      sub: 'total expenses',
+      icon: CreditCard, color: '#f59e0b',
+      bg: 'rgba(245,158,11,0.08)', bd: 'rgba(245,158,11,0.18)'
     },
     {
-      label: t.totalExpenses, value: `₹${stats.totalExpenses.toLocaleString()}`,
-      sub: 'this month',
-      gradient: 'from-amber-400 to-orange-500',
-      glow: 'rgba(245,158,11,0.35)',
-      icon: CreditCard, iconBg: 'bg-white/20',
-      textColor: 'text-white'
+      label: 'Net Balance', value: `\u20b9${Math.abs(stats.netBalance).toLocaleString()}`,
+      sub: stats.netBalance >= 0 ? 'net positive' : 'net negative',
+      icon: stats.netBalance >= 0 ? TrendingUp : AlertTriangle,
+      color: stats.netBalance >= 0 ? '#10b981' : '#f43f5e',
+      bg: stats.netBalance >= 0 ? 'rgba(16,185,129,0.08)' : 'rgba(244,63,94,0.08)',
+      bd: stats.netBalance >= 0 ? 'rgba(16,185,129,0.18)' : 'rgba(244,63,94,0.18)'
     },
   ];
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-4">
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpiCards.map((card, i) => (
-          <div key={i} className="relative rounded-3xl p-5 overflow-hidden group cursor-default"
-            style={{
-              background: `linear-gradient(135deg, var(--tw-gradient-stops))`,
-              boxShadow: `0 8px 32px ${card.glow}`
-            }}>
-            <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient}`} />
-            <div className="absolute top-0 right-0 w-24 h-24 rounded-full -mr-8 -mt-8 bg-white/10 blur-xl" />
-            <div className="relative z-10">
-              <div className={`w-9 h-9 rounded-xl ${card.iconBg} flex items-center justify-center mb-4`}>
-                <card.icon className="w-5 h-5 text-white" />
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-4">
+
+      {/* ── Greeting Header ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">{greeting}</p>
+          <h1 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">
+            {state.profile.name || state.profile.shopName || 'Dashboard'}
+          </h1>
+          {state.profile.shopName && state.profile.name && (
+            <p className="text-sm font-semibold text-slate-400 mt-0.5">{state.profile.shopName}</p>
+          )}
+        </div>
+        <div className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm"
+          style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}>
+          <Package className="w-5 h-5 text-white" />
+        </div>
+      </div>
+
+      {/* ── KPI Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {kpiCards.map((card) => (
+          <div key={card.label}
+            className="bg-white dark:bg-slate-800/80 rounded-2xl p-4 border transition-all duration-200 hover:shadow-md hover:-translate-y-0.5"
+            style={{ borderColor: card.bd, boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}>
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-[9.5px] font-black text-slate-400 uppercase tracking-widest leading-tight">{card.label}</p>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: card.bg }}>
+                <card.icon className="w-3.5 h-3.5" style={{ color: card.color }} />
               </div>
-              <p className="text-white/70 font-bold text-[10px] uppercase tracking-widest mb-1">{card.label}</p>
-              <p className="text-white font-black text-2xl leading-none">{card.value}</p>
-              <p className="text-white/60 font-semibold text-[10px] mt-1.5">{card.sub}</p>
             </div>
+            <p className="text-2xl font-black leading-none mb-1" style={{ color: card.color }}>{card.value}</p>
+            <p className="text-[10px] font-semibold text-slate-400">{card.sub}</p>
           </div>
         ))}
       </div>
 
+      {/* ── Two Column: Recent Activity + AI Insight ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <Card className="md:col-span-2 p-7 space-y-5">
+
+        {/* Recent Expenses */}
+        <Card className="md:col-span-2 p-6 space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-lg font-black text-slate-800 dark:text-white font-display">Recent Movements</h3>
-            <Button variant="ghost" className="text-[10px] uppercase tracking-widest font-black h-8 px-3">View All</Button>
+            <h3 className="text-base font-black text-slate-800 dark:text-white font-display">Recent Expenses</h3>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{state.expenses.length} total</span>
           </div>
           <div className="space-y-1">
-            {state.movementLogs.length === 0 && (
+            {recentExpenses.length === 0 && (
               <div className="py-8 text-center">
-                <Package className="w-10 h-10 text-slate-200 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-slate-400">No movements yet</p>
+                <CreditCard className="w-10 h-10 text-slate-200 dark:text-slate-700 mx-auto mb-3" />
+                <p className="text-sm font-semibold text-slate-400">No expenses added yet</p>
               </div>
             )}
-            {state.movementLogs.slice(-5).reverse().map(log => {
-              const item = state.inventory.find(i => i.id === log.skuId);
-              return (
-                <div key={log.id} className="flex items-center justify-between py-3 border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${
-                      log.type === 'IN'
-                        ? 'text-emerald-600'
-                        : 'text-rose-600'
-                    }`} style={{
-                      background: log.type === 'IN' ? 'linear-gradient(135deg, #d1fae5, #a7f3d0)' : 'linear-gradient(135deg, #ffe4e6, #fecdd3)'
-                    }}>
-                      {log.type === 'IN' ? <ArrowUpRight className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
-                    </div>
-                    <div>
-                      <p className="font-bold text-sm text-slate-800 dark:text-white">{item?.name || 'Unknown Item'}</p>
-                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{log.reason} &bull; {new Date(log.timestamp).toLocaleTimeString()}</p>
-                    </div>
+            {recentExpenses.map(exp => (
+              <div key={exp.id} className="flex items-center justify-between py-3 border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center text-amber-600"
+                    style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)' }}>
+                    <CreditCard className="w-4 h-4" />
                   </div>
-                  <span className={`font-black text-sm px-3 py-1 rounded-full ${
-                    log.type === 'IN'
-                      ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400'
-                      : 'text-rose-700 bg-rose-50 dark:bg-rose-900/20 dark:text-rose-400'
-                  }`}>
-                    {log.type === 'IN' ? '+' : '-'}{log.quantity}
-                  </span>
+                  <div>
+                    <p className="font-bold text-sm text-slate-800 dark:text-white">{exp.description || exp.category}</p>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                      {exp.category} &bull; {new Date(exp.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </p>
+                  </div>
                 </div>
-              );
-            })}
+                <span className="font-black text-sm px-3 py-1 rounded-full text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400">
+                  -\u20b9{exp.amount.toLocaleString()}
+                </span>
+              </div>
+            ))}
           </div>
         </Card>
 
-        <div className="rounded-3xl p-7 space-y-5 text-white overflow-hidden relative"
+        {/* AI Quick Insight */}
+        <div className="rounded-2xl p-6 space-y-5 text-white overflow-hidden relative"
           style={{ background: 'linear-gradient(135deg, #0f0c29, #302b63, #24243e)' }}>
           <div className="absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl" style={{ background: 'rgba(99,102,241,0.4)' }} />
           <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full blur-3xl" style={{ background: 'rgba(168,85,247,0.3)' }} />
@@ -4346,6 +4545,65 @@ const RetailerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) 
           </div>
         </div>
       </div>
+
+      {/* ── Recent Stock Movements ── */}
+      <Card className="p-6 space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-base font-black text-slate-800 dark:text-white font-display">Recent Movements</h3>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{state.movementLogs.length} total</span>
+        </div>
+        <div className="space-y-1">
+          {state.movementLogs.length === 0 && (
+            <div className="py-8 text-center">
+              <Package className="w-10 h-10 text-slate-200 dark:text-slate-700 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-400">No movements yet</p>
+            </div>
+          )}
+          {state.movementLogs.slice(-5).reverse().map(log => {
+            const item = state.inventory.find(i => i.id === log.skuId);
+            return (
+              <div key={log.id} className="flex items-center justify-between py-3 border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${
+                    log.type === 'IN' ? 'text-emerald-600' : 'text-rose-600'
+                  }`} style={{
+                    background: log.type === 'IN' ? 'linear-gradient(135deg, #d1fae5, #a7f3d0)' : 'linear-gradient(135deg, #ffe4e6, #fecdd3)'
+                  }}>
+                    {log.type === 'IN' ? <ArrowUpRight className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm text-slate-800 dark:text-white">{item?.name || 'Unknown Item'}</p>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{log.reason} &bull; {new Date(log.timestamp).toLocaleTimeString()}</p>
+                  </div>
+                </div>
+                <span className={`font-black text-sm px-3 py-1 rounded-full ${
+                  log.type === 'IN'
+                    ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400'
+                    : 'text-rose-700 bg-rose-50 dark:bg-rose-900/20 dark:text-rose-400'
+                }`}>
+                  {log.type === 'IN' ? '+' : '-'}{log.quantity}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* ── Quick Stats Footer ── */}
+      {stats.lowStock > 0 && (
+        <div className="p-4 rounded-2xl border border-amber-200/60 dark:border-amber-800/40"
+          style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.05), rgba(245,158,11,0.02))' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-amber-100 dark:bg-amber-900/30">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+            </div>
+            <div>
+              <p className="font-black text-sm text-amber-800 dark:text-amber-300">{stats.lowStock} item{stats.lowStock > 1 ? 's' : ''} need attention</p>
+              <p className="text-[10px] font-semibold text-amber-600/70">Low or critical stock levels detected</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -4405,20 +4663,8 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
 
   const getCatConfig = (cat: string) => categoryConfig[cat] || { emoji: '📦', color: '#64748B', bg: 'rgba(100,116,139,0.08)', group: 'Other' };
 
-  // ── Load expenses from Supabase on mount + real-time subscription ──
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const rows = await expensesServiceFetch(myId);
-      if (!cancelled) setState(s => ({ ...s, expenses: rows }));
-    };
-    load();
-
-    const unsubscribe = expensesServiceSubscribe(myId, (rows) => {
-      if (!cancelled) setState(s => ({ ...s, expenses: rows }));
-    });
-    return () => { cancelled = true; unsubscribe(); };
-  }, [myId]);
+  // NOTE: Expense fetch + realtime subscription lives in the App component
+  // so data persists across tab navigation. No need to re-fetch here.
 
   // ── Month-filtered expenses ──
   const monthExpenses = useMemo(() => {
@@ -5121,7 +5367,8 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [followLoading, setFollowLoading] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'followers' | 'following' | 'pending'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'connected' | 'sent' | 'pending'>('all');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'MANUFACTURER' | 'DISTRIBUTOR' | 'RETAILER'>('ALL');
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [connectionProfiles, setConnectionProfiles] = useState<Record<string, any>>({});
   const [recommendations, setRecommendations] = useState<any[]>([]);
@@ -5156,15 +5403,15 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
 
   // Convert Supabase rows → local BusinessConnection state + fetch profiles
   const applyConnectionRows = async (rows: any[]) => {
-    const otherIds = rows.map(r => r.follower_id === myId ? r.following_id : r.follower_id);
+    const otherIds = rows.map(r => r.sender_id === myId ? r.receiver_id : r.sender_id);
     const profiles = otherIds.length ? await connectionsServiceFetchProfiles(otherIds) : [];
     const profileMap: Record<string, any> = {};
     profiles.forEach(p => { profileMap[p.id] = p; });
     setConnectionProfiles(prev => ({ ...prev, ...profileMap }));
 
     const connections: BusinessConnection[] = rows.map(r => {
-      const isOutgoing = r.follower_id === myId;
-      const otherId = isOutgoing ? r.following_id : r.follower_id;
+      const isOutgoing = r.sender_id === myId;
+      const otherId = isOutgoing ? r.receiver_id : r.sender_id;
       const p = profileMap[otherId];
       return {
         id: r.id,
@@ -5172,8 +5419,10 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
         name: p?.name || p?.shop_name || otherId,
         shopName: p?.shop_name || '',
         role: (p?.role as UserRole) || UserRole.RETAILER,
+        senderRole: (r.sender_role as UserRole) || UserRole.RETAILER,
+        receiverRole: (r.receiver_role as UserRole) || UserRole.RETAILER,
         city: p?.city || '',
-        status: r.status === 'ACCEPTED' ? 'CONNECTED' : 'PENDING',
+        status: r.status === 'ACCEPTED' ? 'CONNECTED' : (r.status === 'REJECTED' ? 'REJECTED' : 'PENDING'),
         direction: isOutgoing ? 'outgoing' : 'incoming',
       };
     });
@@ -5218,10 +5467,10 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
   }, [searchQuery, myId]);
 
   // Follow a business
-  const handleFollow = async (targetId: string) => {
+  const handleFollow = async (targetId: string, receiverRole: string) => {
     setFollowLoading(targetId);
     try {
-      await connectionsServiceFollow(myId, targetId);
+      await connectionsServiceFollow(myId, targetId, state.role || UserRole.RETAILER, receiverRole);
       showToastMsg('Follow request sent!');
       setSearchQuery('');
       setSearchResults([]);
@@ -5244,6 +5493,17 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
     }
   };
 
+  // Reject incoming follow
+  const handleReject = async (connectionId: string) => {
+    try {
+      await connectionsServiceReject(connectionId);
+      showToastMsg('Request declined.');
+    } catch (err: any) {
+      showToastMsg('Decline failed. Try again.');
+      console.warn('Reject failed:', err.message);
+    }
+  };
+
   // Unfollow
   const handleUnfollow = async (connectionId: string) => {
     try {
@@ -5260,17 +5520,20 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
 
   // Filtered connections
   const filteredConnections = useMemo(() => state.connections.filter(c => {
-    if (activeFilter === 'followers') return c.direction === 'incoming' && c.status === 'CONNECTED';
-    if (activeFilter === 'following') return c.direction === 'outgoing';
-    if (activeFilter === 'pending') return c.status === 'PENDING';
+    // Application of Request Type Filter
+    if (activeFilter === 'connected' && c.status !== 'CONNECTED') return false;
+    if (activeFilter === 'sent' && (c.direction !== 'outgoing' || c.status !== 'PENDING')) return false;
+    if (activeFilter === 'pending' && (c.direction !== 'incoming' || c.status !== 'PENDING')) return false;
+    // Application of Role Filter
+    if (roleFilter !== 'ALL' && c.role !== roleFilter) return false;
     return true;
-  }), [state.connections, activeFilter]);
+  }), [state.connections, activeFilter, roleFilter]);
 
   const filterTabs = useMemo(() => [
     { key: 'all' as const, label: 'All', icon: Users, count: state.connections.length },
-    { key: 'following' as const, label: 'Following', icon: UserPlus, count: state.connections.filter(c => c.direction === 'outgoing').length },
-    { key: 'followers' as const, label: 'Followers', icon: UserCheck, count: state.connections.filter(c => c.direction === 'incoming' && c.status === 'CONNECTED').length },
-    { key: 'pending' as const, label: 'Pending', icon: Clock, count: state.connections.filter(c => c.status === 'PENDING').length },
+    { key: 'connected' as const, label: 'Connected Users', icon: Link2, count: state.connections.filter(c => c.status === 'CONNECTED').length },
+    { key: 'sent' as const, label: 'Sent Requests', icon: UserPlus, count: state.connections.filter(c => c.direction === 'outgoing' && c.status === 'PENDING').length },
+    { key: 'pending' as const, label: 'Pending Requests', icon: Clock, count: state.connections.filter(c => c.direction === 'incoming' && c.status === 'PENDING').length },
   ], [state.connections]);
 
   const pendingIncoming = useMemo(() => state.connections.filter(c => c.direction === 'incoming' && c.status === 'PENDING'), [state.connections]);
@@ -5284,9 +5547,9 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
   }, [searchQuery]);
 
   const roleConfig = useCallback((role: UserRole) => {
-    if (role === UserRole.MANUFACTURER) return { bg: '#FEF3C7', bgDark: 'rgba(245,158,11,0.12)', border: '#FDE68A', text: '#92400E', accent: '#F59E0B', emoji: '🏭', label: 'Manufacturer', gradient: 'linear-gradient(135deg, #F59E0B, #D97706)' };
-    if (role === UserRole.DISTRIBUTOR) return { bg: '#D1FAE5', bgDark: 'rgba(16,185,129,0.12)', border: '#A7F3D0', text: '#065F46', accent: '#10B981', emoji: '🚛', label: 'Distributor', gradient: 'linear-gradient(135deg, #10B981, #059669)' };
-    return { bg: '#E0E7FF', bgDark: 'rgba(99,102,241,0.12)', border: '#C7D2FE', text: '#3730A3', accent: '#6366F1', emoji: '🏪', label: 'Shopkeeper', gradient: 'linear-gradient(135deg, #6366F1, #4F46E5)' };
+    if (role === UserRole.MANUFACTURER) return { bg: '#DBEAFE', bgDark: 'rgba(59,130,246,0.12)', border: '#BFDBFE', text: '#1E40AF', accent: '#3B82F6', emoji: '🏭', label: 'Manufacturer', gradient: 'linear-gradient(135deg, #3B82F6, #2563EB)' };
+    if (role === UserRole.DISTRIBUTOR) return { bg: '#FFEDD5', bgDark: 'rgba(249,115,22,0.12)', border: '#FED7AA', text: '#9A3412', accent: '#F97316', emoji: '🚛', label: 'Distributor', gradient: 'linear-gradient(135deg, #F97316, #EA580C)' };
+    return { bg: '#D1FAE5', bgDark: 'rgba(16,185,129,0.12)', border: '#A7F3D0', text: '#065F46', accent: '#10B981', emoji: '🏪', label: 'Retailer', gradient: 'linear-gradient(135deg, #10B981, #059669)' };
   }, []);
 
   // ── Skeleton Card ──
@@ -5314,32 +5577,28 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
   return (
     <div className="max-w-5xl mx-auto pb-24 sm:pb-8 animate-in fade-in duration-500">
       {/* ═══════════════ STICKY HEADER ═══════════════ */}
-      <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-4"
-        style={{ background: 'linear-gradient(to bottom, var(--tw-gradient-from, rgb(248 250 252)) 80%, transparent)', }}
-      >
-        <div className="dark:hidden" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgb(248,250,252) 80%, transparent)' }} />
-        <div className="hidden dark:block" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgb(15,23,42) 80%, transparent)' }} />
+      <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-3 pb-6 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800/60 shadow-sm transition-colors duration-200">
         <div className="relative">
           {/* Row 1: Title + ID badge */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg"
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-md shrink-0"
                 style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
-                <Globe className="w-5 h-5 text-white" />
+                <Globe className="w-5.5 h-5.5 text-white" />
               </div>
-              <div>
+              <div className="flex flex-col">
                 <h2 className="text-xl font-black text-slate-900 dark:text-white leading-tight">{t.connections}</h2>
-                <p className="text-[11px] text-slate-400 font-semibold">Discover & grow your business network</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">Discover & grow your business network</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               {pendingIncoming.length > 0 && (
                 <button
                   onClick={() => setActiveFilter('pending')}
-                  className="relative w-10 h-10 rounded-xl flex items-center justify-center bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 transition-all hover:scale-105 active:scale-95"
+                  className="relative w-11 h-11 rounded-xl flex items-center justify-center bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 transition-all hover:scale-105 active:scale-95"
                 >
-                  <Bell className="w-4.5 h-4.5 text-amber-600 dark:text-amber-400" />
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-[9px] font-black text-white"
+                  <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1 flex items-center justify-center rounded-full text-[10px] font-black text-white"
                     style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)', boxShadow: '0 2px 8px rgba(245,158,11,0.4)' }}>
                     {pendingIncoming.length}
                   </span>
@@ -5347,30 +5606,30 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
               )}
               <button
                 onClick={() => setShowFilterDrawer(true)}
-                className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-all hover:border-indigo-300 dark:hover:border-indigo-600 hover:scale-105 active:scale-95"
+                className="w-11 h-11 rounded-xl flex items-center justify-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm transition-all hover:border-indigo-300 dark:hover:border-indigo-500 hover:shadow-md active:scale-95"
               >
-                <SlidersHorizontal className="w-4.5 h-4.5 text-slate-500 dark:text-slate-400" />
+                <SlidersHorizontal className="w-5 h-5 text-slate-600 dark:text-slate-300" />
               </button>
             </div>
           </div>
 
           {/* Row 2: Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+          <div className="relative group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500 group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400 transition-colors" />
             <input
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-3.5 pl-11 pr-11 text-sm font-semibold text-slate-800 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
+              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-2xl py-3.5 pl-12 pr-12 text-[15px] font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all"
               placeholder="Search businesses by name, shop, or ID..."
             />
             {searchLoading && (
-              <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-indigo-400 animate-spin" />
+              <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-500 animate-spin" />
             )}
             {searchQuery && !searchLoading && (
               <button onClick={() => { setSearchQuery(''); setSearchResults([]); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center hover:bg-slate-300 transition-colors">
-                <X className="w-3 h-3 text-slate-500 dark:text-slate-300" />
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                <X className="w-3.5 h-3.5 text-slate-500 dark:text-slate-300" />
               </button>
             )}
           </div>
@@ -5420,7 +5679,7 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
                       </span>
                     ) : (
                       <button
-                        onClick={() => handleFollow(biz.id)}
+                        onClick={() => handleFollow(biz.id, biz.role || UserRole.RETAILER)}
                         disabled={followLoading === biz.id}
                         className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold text-white transition-all duration-200 hover:shadow-lg hover:scale-[1.02] active:scale-[0.97] disabled:opacity-50 shrink-0"
                         style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', boxShadow: '0 4px 14px rgba(99,102,241,0.25)' }}
@@ -5531,7 +5790,7 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
                       </span>
                     ) : (
                       <button
-                        onClick={() => handleFollow(biz.id)}
+                        onClick={() => handleFollow(biz.id, biz.role || UserRole.RETAILER)}
                         disabled={followLoading === biz.id}
                         className="w-full px-2 py-2 rounded-xl font-bold text-[10px] text-white transition-all duration-200 hover:shadow-md active:scale-[0.96] disabled:opacity-50"
                         style={{ background: rc.gradient, boxShadow: `0 3px 12px ${rc.accent}33` }}
@@ -5549,29 +5808,50 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
 
       {/* ═══════════════ FILTER TABS ═══════════════ */}
       {!searchQuery && (
-        <div className="flex gap-1.5 mb-5 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-2xl overflow-x-auto">
-          {filterTabs.map(tab => {
-            const isActive = activeFilter === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveFilter(tab.key)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all duration-200 whitespace-nowrap flex-1 justify-center ${
-                  isActive
-                    ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-                }`}
-              >
-                <tab.icon className="w-3.5 h-3.5" />
-                {tab.label}
-                {tab.count > 0 && (
-                  <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[9px] font-black ${
-                    isActive ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
-                  }`}>{tab.count}</span>
-                )}
-              </button>
-            );
-          })}
+        <div className="space-y-3 mb-5">
+          <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-2xl overflow-x-auto">
+            {filterTabs.map(tab => {
+              const isActive = activeFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveFilter(tab.key)}
+                  className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all duration-200 whitespace-nowrap flex-1 justify-center ${
+                    isActive
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  <tab.icon className="w-3.5 h-3.5" />
+                  {tab.label}
+                  {tab.count > 0 && (
+                    <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[9px] font-black ${
+                      isActive ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                    }`}>{tab.count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center shrink-0 pr-2">Role:</span>
+            {['ALL', 'MANUFACTURER', 'DISTRIBUTOR', 'RETAILER'].map(role => {
+              const isActive = roleFilter === role;
+              return (
+                <button
+                  key={role}
+                  onClick={() => setRoleFilter(role as any)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-colors shrink-0 ${
+                    isActive
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {role === 'ALL' ? 'All Roles' : (role.charAt(0) + role.slice(1).toLowerCase())}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -5633,7 +5913,7 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
                           <Check className="w-3.5 h-3.5" /> Accept
                         </button>
                         <button
-                          onClick={() => handleUnfollow(c.id)}
+                          onClick={() => handleReject(c.id)}
                           className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-95"
                           title="Decline"
                         >
@@ -5661,8 +5941,14 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
 
                 {/* Expandable details */}
                 <div className={`overflow-hidden transition-all duration-250 ease-in-out ${isExpanded ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <div className="px-4 pb-4 pt-1 border-t border-slate-100 dark:border-slate-700/30">
-                    <div className="flex items-center gap-6 text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                  <div className="px-4 pb-4 pt-3 border-t border-slate-100 dark:border-slate-700/30">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded" style={{ background: rc.bgDark, color: rc.accent, border: `1px solid ${rc.border}` }}>
+                        {rc.emoji} {rc.label}
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">{profile?.business_category || 'General Business'}</span>
+                    </div>
+                    <div className="flex flex-wrap flex-row items-center gap-x-6 gap-y-2 text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
                       <span className="flex items-center gap-1"><Fingerprint className="w-3 h-3 text-slate-400" /> {c.businessId.slice(0, 16)}...</span>
                       {profile?.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {profile.email}</span>}
                       {profile?.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {profile.phone}</span>}
@@ -5766,6 +6052,11 @@ const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.
         </div>
       )}
 
+      {/* ═══════════════ NEARBY STORES ═══════════════ */}
+      <div className="mt-6">
+        <NearestStoresModule t={t} />
+      </div>
+
       {/* ═══════════════ TOAST ═══════════════ */}
       {toast && (
         <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-bold shadow-2xl flex items-center gap-2"
@@ -5860,12 +6151,13 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
     setState(s => {
       const toDelete = (s.payments || []).find(p => p.id === id);
       const newPayments = (s.payments || []).filter(p => p.id !== id);
-      // Unlink expense if this payment was linked to one
+      // If this payment was linked to an expense, delete the expense too
       let newExpenses = s.expenses;
       if (toDelete?.source === 'expense' && toDelete.sourceId) {
-        newExpenses = s.expenses.map(e =>
-          e.id === toDelete.sourceId ? { ...e, linkedPaymentId: undefined } : e
-        );
+        const expenseId = toDelete.sourceId;
+        newExpenses = s.expenses.filter(e => e.id !== expenseId);
+        // Also delete from Supabase in the background
+        expensesServiceDelete(expenseId).catch(() => { /* ignore */ });
       }
       return { ...s, payments: newPayments, expenses: newExpenses };
     });
@@ -6364,14 +6656,12 @@ const NearestStoresModule: React.FC<{ t: any }> = ({ t }) => {
 const DistributorDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) => (
   <div className="space-y-8">
     <RetailerDashboard state={state} t={t} />
-    <NearestStoresModule t={t} />
   </div>
 );
 
 const ManufacturerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) => (
   <div className="space-y-8">
     <RetailerDashboard state={state} t={t} />
-    <NearestStoresModule t={t} />
   </div>
 );
 

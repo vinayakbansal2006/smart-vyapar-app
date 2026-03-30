@@ -18,26 +18,96 @@
 
     <style>
       :root {
-        --brand: #4f46e5;
-        --brand-light: #6366f1;
-        --brand-dark: #3730a3;
-        --brand-glow: rgba(99,102,241,0.25);
-        --surface: #ffffff;
-        --surface2: #f8fafc;
-        --border: rgba(99,102,241,0.12);
-        --text: #0f172a;
-        --text-muted: #64748b;
+        --brand: #7c3aed;
+        --brand-light: #8b5cf6;
+        --brand-dark: #6d28d9;
+        --brand-glow: rgba(124,58,237,0.24);
+
+        --color-bg-app: #ffffff;
+        --color-bg-subtle: #f1f5f9;
+        --color-surface: #ffffff;
+        --color-surface-2: #f8fafc;
+        --color-border: #e2e8f0;
+        --color-text-primary: #0f172a;
+        --color-text-secondary: #64748b;
+        --color-text-muted: #64748b;
+
+        --color-navbar-bg: #ffffff;
+        --color-navbar-border: #e2e8f0;
+        --color-nav-active: #7c3aed;
+        --color-nav-active-pill: rgba(124,58,237,0.14);
+        --color-nav-inactive: #64748b;
+
+        --color-feature-bg: #f1f5f9;
+        --color-feature-card: #ffffff;
+        --color-feature-input: #ffffff;
+        --color-feature-border: #e2e8f0;
+        --color-feature-text: #0f172a;
+        --color-feature-text-secondary: #64748b;
+        --color-feature-text-muted: #64748b;
+        --color-success: #3fb950;
+        --color-warning: #d29922;
+        --color-danger: #f85149;
+        --color-overlay: rgba(15,23,42,0.62);
+        --color-toast-bg: #111827;
+        --color-on-accent: #ffffff;
+        --color-chat-shell: #0b141a;
+        --color-chat-bubble: #202c33;
+        --color-chat-text: #d9fdd3;
+
+        --status-critical-bg: rgba(248,81,73,0.12);
+        --status-critical-text: #f85149;
+        --status-critical-border: rgba(248,81,73,0.4);
+        --status-low-bg: rgba(210,153,34,0.12);
+        --status-low-text: #d29922;
+        --status-low-border: rgba(210,153,34,0.4);
+        --status-optimal-bg: rgba(63,185,80,0.12);
+        --status-optimal-text: #3fb950;
+        --status-optimal-border: rgba(63,185,80,0.4);
+        --status-excess-bg: rgba(100,116,139,0.12);
+        --status-excess-text: #64748b;
+        --status-excess-border: rgba(100,116,139,0.35);
+
         --radius: 1.25rem;
-        --shadow: 0 4px 32px rgba(79,70,229,0.10);
-        --shadow-md: 0 8px 48px rgba(79,70,229,0.15);
-        --shadow-xl: 0 20px 80px rgba(79,70,229,0.20);
+        --shadow: 0 2px 18px rgba(15,23,42,0.08);
+        --shadow-md: 0 8px 28px rgba(15,23,42,0.12);
+        --shadow-xl: 0 22px 60px rgba(15,23,42,0.18);
       }
       .dark {
-        --surface: #0f1629;
-        --surface2: #141c35;
-        --border: rgba(99,102,241,0.18);
-        --text: #f1f5f9;
-        --text-muted: #94a3b8;
+        --color-bg-app: #0f172a;
+        --color-bg-subtle: #1e293b;
+        --color-surface: #1e293b;
+        --color-surface-2: #0f172a;
+        --color-border: #334155;
+        --color-text-primary: #f8fafc;
+        --color-text-secondary: #94a3b8;
+        --color-text-muted: #94a3b8;
+
+        --color-navbar-bg: #0f172a;
+        --color-navbar-border: #334155;
+        --color-nav-active: #7c3aed;
+        --color-nav-active-pill: rgba(124,58,237,0.24);
+        --color-nav-inactive: #94a3b8;
+
+        --color-feature-bg: #0f172a;
+        --color-feature-card: #1e293b;
+        --color-feature-input: #1e293b;
+        --color-feature-border: #334155;
+        --color-feature-text: #f8fafc;
+        --color-feature-text-secondary: #94a3b8;
+        --color-feature-text-muted: #94a3b8;
+        --color-overlay: rgba(2,6,23,0.76);
+        --color-toast-bg: #020617;
+        --color-on-accent: #ffffff;
+        --color-chat-shell: #0b141a;
+        --color-chat-bubble: #1b2731;
+        --color-chat-text: #d9fdd3;
+
+        --status-critical-bg: rgba(248,81,73,0.2);
+        --status-low-bg: rgba(210,153,34,0.2);
+        --status-optimal-bg: rgba(63,185,80,0.2);
+        --status-excess-bg: rgba(148,163,184,0.18);
+
         --shadow: 0 4px 32px rgba(0,0,0,0.4);
         --shadow-md: 0 8px 48px rgba(0,0,0,0.5);
         --shadow-xl: 0 20px 80px rgba(0,0,0,0.6);
@@ -49,11 +119,37 @@
 
       body {
         font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-        background: var(--surface);
-        color: var(--text);
+        background: var(--color-bg-app);
+        color: var(--color-text-primary);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         overflow-x: hidden;
+        transition: background-color 180ms ease, color 180ms ease;
+      }
+
+      body, main, header, nav, section, article, div, input, textarea, select, button {
+        transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+      }
+      
+      /* Force dark text and light tinted background on Light Mode explicitly */
+      html:not(.dark) .text-slate-400,
+      html:not(.dark) .text-slate-500,
+      html:not(.dark) .text-slate-600 {
+        color: var(--color-text-secondary) !important;
+      }
+      html:not(.dark) .text-slate-700,
+      html:not(.dark) .text-slate-800,
+      html:not(.dark) .text-slate-900 {
+        color: var(--color-text-primary) !important;
+      }
+      html:not(.dark) .text-white {
+        color: #ffffff !important; /* preserve intended white text inside buttons */
+      }
+      html:not(.dark) .bg-white {
+        background-color: var(--color-surface) !important;
+      }
+      html:not(.dark) .bg-slate-50 {
+        background-color: var(--color-bg-subtle) !important;
       }
 
       /* ── Scrollbar ── */
@@ -72,12 +168,12 @@
       .bg-mesh {
         background: radial-gradient(ellipse 80% 80% at 20% -10%, rgba(99,102,241,0.18) 0%, transparent 55%),
                     radial-gradient(ellipse 60% 60% at 80% 120%, rgba(168,85,247,0.12) 0%, transparent 50%),
-                    var(--surface2);
+                    var(--color-surface-2);
       }
       .dark .bg-mesh {
         background: radial-gradient(ellipse 80% 80% at 20% -10%, rgba(99,102,241,0.12) 0%, transparent 55%),
                     radial-gradient(ellipse 60% 60% at 80% 120%, rgba(168,85,247,0.08) 0%, transparent 50%),
-                    var(--surface2);
+                    var(--color-bg-subtle);
       }
 
       /* ── Glass card ── */
@@ -87,10 +183,53 @@
         -webkit-backdrop-filter: blur(24px) saturate(160%);
         border: 1px solid rgba(255,255,255,0.6);
       }
+
       .dark .glass {
         background: rgba(15,22,41,0.72);
         border: 1px solid rgba(99,102,241,0.18);
       }
+
+      .app-navbar {
+        background: var(--color-navbar-bg);
+        border-top: 1px solid var(--color-navbar-border);
+        box-shadow: 0 -6px 20px rgba(15,23,42,0.14);
+      }
+
+      .app-nav-button {
+        min-width: 3.6rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+      }
+
+      .app-nav-pill {
+        width: 3.1rem;
+        height: 2.5rem;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid transparent;
+      }
+
+      .app-nav-pill.active {
+        background: var(--color-nav-active-pill);
+        border-color: var(--color-nav-active);
+        box-shadow: 0 0 0 1px rgba(124,58,237,0.2), 0 6px 16px rgba(124,58,237,0.25);
+      }
+
+      .app-nav-icon.active { color: var(--color-nav-active); }
+      .app-nav-icon.inactive { color: var(--color-nav-inactive); }
+
+      .app-nav-label {
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.01em;
+      }
+      .app-nav-label.active { color: var(--color-nav-active); }
+      .app-nav-label.inactive { color: var(--color-nav-inactive); }
 
       /* ── Glow button ── */
       .btn-glow:not(:disabled):hover {
@@ -363,7 +502,7 @@
     </style>
   </head>
 
-  <body class="bg-white text-slate-900 dark:bg-[#0f1629] dark:text-slate-100">
+  <body class="bg-[#f4f6f9] text-[#050505] dark:bg-[#0f1629] dark:text-slate-100">
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
   </body>

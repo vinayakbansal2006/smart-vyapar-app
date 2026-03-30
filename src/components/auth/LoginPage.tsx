@@ -10,7 +10,6 @@ import {
   sendPhoneOtp,
   verifyPhoneOtp,
   upsertUserProfile,
-  firebaseGoogleLogin,
 } from '../../services/authService';
 
 /* ─── Types ─────────────────────────────────────────────────────────────────── */
@@ -653,18 +652,15 @@ const LoginPage: React.FC<LoginPageProps> = ({
     setGoogleLoading(true);
     setAuthError('');
     try {
-      // Use Firebase popup-based Google sign-in (saves user to Firestore too)
-      const firebaseUser = await firebaseGoogleLogin();
-      if (firebaseUser) {
-        onAuthSuccess('google', {
-          uid: firebaseUser.uid,
-          name: firebaseUser.displayName,
-          email: firebaseUser.email,
-          photo: firebaseUser.photoURL,
-          role: selectedRole,
-        });
-      }
+      // Store the selected role in localStorage (will be retrieved after OAuth redirect)
+      localStorage.setItem('vyaparika_pending_role_oauth', selectedRole);
+      // Initiate Supabase Google OAuth flow (redirects user to Google)
+      await signInWithGoogle();
+      // Note: If OAuth succeeds, the page will redirect and come back with auth session
+      // The onAuthStateChange in App.tsx will handle the rest
     } catch (err: any) {
+      localStorage.removeItem('vyaparika_pending_role_oauth');
+      setGoogleLoading(false);
       const msg = err?.message || '';
       if (msg.includes('popup-closed-by-user') || msg.includes('cancelled')) {
         setAuthError('Sign-in cancelled. Please try again.');
@@ -673,8 +669,6 @@ const LoginPage: React.FC<LoginPageProps> = ({
       } else {
         setAuthError(msg || 'Google sign-in failed. Please try again.');
       }
-    } finally {
-      setGoogleLoading(false);
     }
   };
 

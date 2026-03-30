@@ -61,8 +61,10 @@ export interface BusinessConnection {
   name: string;
   shopName?: string;
   role: UserRole;
+  senderRole?: UserRole;
+  receiverRole?: UserRole;
   city?: string;
-  status: 'PENDING' | 'CONNECTED';
+  status: 'PENDING' | 'CONNECTED' | 'REJECTED';
   direction?: 'outgoing' | 'incoming';
 }
 
@@ -117,6 +119,7 @@ export interface UserProfile {
   establishedYear?: string;
   bioAuthEnabled: boolean;
   notificationsEnabled: boolean;
+  role?: UserRole;
 }
 
 export interface AppState {

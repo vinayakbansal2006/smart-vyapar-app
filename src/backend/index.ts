@@ -1,23 +1,11 @@
 /**
- * Backend — Barrel Export
- * ───────────────────────
- * Central re-export for every backend provider (Firebase + Supabase).
+ * Backend — Barrel Export (Supabase Only)
+ * ───────────────────────────────────────
+ * Central re-export for Supabase backend provider.
  *
  * Usage:
- *   import { supabase, db, loginWithGoogle } from '../backend';
+ *   import { supabase } from '../backend';
  */
-
-// ── Firebase ──────────────────────────────────────────────────────
-export {
-  firebaseApp,
-  analytics,
-  db,
-  loginWithGoogle,
-  logoutFirebase,
-  onFirebaseAuthStateChanged,
-  auth as firebaseAuth,
-  provider as googleProvider,
-} from './firebase';
 
 // ── Supabase ──────────────────────────────────────────────────────
 export { supabase } from './supabase';

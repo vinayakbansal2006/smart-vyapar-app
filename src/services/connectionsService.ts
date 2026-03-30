@@ -2,12 +2,14 @@ import { supabase } from '../backend/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type ConnectionStatus = 'PENDING' | 'ACCEPTED';
+export type ConnectionStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED';
 
 export interface ConnectionRow {
   id: string;
-  follower_id: string;
-  following_id: string;
+  sender_id: string;
+  receiver_id: string;
+  sender_role: string;
+  receiver_role: string;
   status: ConnectionStatus;
   created_at: string;
   updated_at: string;
@@ -28,14 +30,18 @@ export interface BusinessProfile {
  * Send a follow request to another business.
  */
 export async function followBusiness(
-  followerId: string,
-  targetId: string
+  senderId: string,
+  receiverId: string,
+  senderRole: string,
+  receiverRole: string
 ): Promise<ConnectionRow> {
   const { data, error } = await supabase
     .from('connections')
     .insert({
-      follower_id: followerId,
-      following_id: targetId,
+      sender_id: senderId,
+      receiver_id: receiverId,
+      sender_role: senderRole,
+      receiver_role: receiverRole,
       status: 'PENDING',
     })
     .select()
@@ -59,6 +65,21 @@ export async function acceptConnection(connectionId: string): Promise<void> {
 
   if (error) {
     console.error('[connectionsService] acceptConnection failed:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Reject an incoming follow request.
+ */
+export async function rejectConnection(connectionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('connections')
+    .update({ status: 'REJECTED', updated_at: new Date().toISOString() })
+    .eq('id', connectionId);
+
+  if (error) {
+    console.error('[connectionsService] rejectConnection failed:', error.message);
     throw error;
   }
 }
@@ -89,7 +110,7 @@ export async function fetchConnections(
   const { data, error } = await supabase
     .from('connections')
     .select('*')
-    .or(`follower_id.eq.${userId},following_id.eq.${userId}`)
+    .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
     .order('created_at', { ascending: false });
 
   if (error) {
