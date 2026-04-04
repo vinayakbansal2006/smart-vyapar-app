@@ -1,3 +1,12 @@
+/**
+ * =========================================================================
+ * Application Constants (constants.tsx)
+ * -------------------------------------------------------------------------
+ * Holds global application configurations, static lists (like languages), 
+ * translations mappings, category layouts, unit formats, etc.
+ * Keeps constant data separate from component rendering logic.
+ * =========================================================================
+ */
 
 export const INDIAN_LANGUAGES = [
   { code: 'EN', name: 'English', native: 'English', region: 'All' },
@@ -31,7 +40,7 @@ export const TRANSLATIONS: Record<string, any> = {
     branding: 'Vyaparika — by Vinayak',
     dashboard: 'Dashboard',
     inventory: 'Inventory',
-    insights: 'AI Insights',
+    insights: 'Tips',
     settings: 'Settings',
     expenses: 'Expenses',
     connections: 'Network',

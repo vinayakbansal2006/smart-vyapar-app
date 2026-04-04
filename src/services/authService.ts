@@ -1,4 +1,22 @@
+/**
+ * =========================================================================
+ * Authentication Service (authService.ts)
+ * -------------------------------------------------------------------------
+ * This service acts as an abstraction layer over Supabase's authentication 
+ * APIs. It handles Google OAuth, phone OTP sign-ins, profile management,
+ * and tracks the current user session state.
+ * =========================================================================
+ */
 import { supabase } from '../backend/supabase';
+import { isSupabaseConfigured } from '../backend/supabase/supabaseClient';
+
+function ensureSupabaseConfigured(): void {
+  if (!isSupabaseConfigured) {
+    throw new Error(
+      'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file, then restart the dev server.'
+    );
+  }
+}
 
 // ─── Google OAuth ────────────────────────────────────────────────────────────
 
@@ -8,6 +26,7 @@ import { supabase } from '../backend/supabase';
  * Supabase redirects back to the app with a session.
  */
 export async function signInWithGoogle(): Promise<void> {
+  ensureSupabaseConfigured();
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
@@ -27,6 +46,7 @@ export async function signInWithGoogle(): Promise<void> {
  * Phone must include country code, e.g. "+919876543210".
  */
 export async function sendPhoneOtp(phone: string): Promise<void> {
+  ensureSupabaseConfigured();
   const { error } = await supabase.auth.signInWithOtp({ phone });
   if (error) {
     console.error('[authService] Failed to send OTP:', error.message);
@@ -42,6 +62,7 @@ export async function verifyPhoneOtp(
   phone: string,
   token: string
 ): Promise<{ userId: string; phone: string }> {
+  ensureSupabaseConfigured();
   const { data, error } = await supabase.auth.verifyOtp({
     phone,
     token,
@@ -68,6 +89,7 @@ export async function upsertUserProfile(profile: {
   name?: string;
   avatar_url?: string;
 }): Promise<void> {
+  ensureSupabaseConfigured();
   const { error } = await supabase.from('user_profiles').upsert(
     {
       id: profile.id,
@@ -91,6 +113,7 @@ export async function upsertUserProfile(profile: {
  * Send a password reset email via Supabase.
  */
 export async function resetPasswordForEmail(email: string): Promise<void> {
+  ensureSupabaseConfigured();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin,
   });
@@ -106,6 +129,7 @@ export async function resetPasswordForEmail(email: string): Promise<void> {
  * Return the current Supabase session (or null).
  */
 export async function getSession() {
+  ensureSupabaseConfigured();
   const { data } = await supabase.auth.getSession();
   return data.session;
 }
@@ -114,6 +138,7 @@ export async function getSession() {
  * Sign the user out of Supabase.
  */
 export async function signOut(): Promise<void> {
+  ensureSupabaseConfigured();
   const { error } = await supabase.auth.signOut();
   if (error) console.error('[authService] Sign-out error:', error.message);
 }
@@ -125,6 +150,7 @@ export async function signOut(): Promise<void> {
 export function onAuthStateChange(
   callback: (event: string, session: any) => void
 ): () => void {
+  ensureSupabaseConfigured();
   const { data } = supabase.auth.onAuthStateChange(callback);
   return () => data.subscription.unsubscribe();
 }

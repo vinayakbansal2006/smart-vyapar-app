@@ -52,77 +52,9 @@ export interface AlertPayload {
   message: string;
 }
 
-const DEFAULT_MOCK: SkuVelocityItem[] = [
-  {
-    id: 'sku-101',
-    name: 'Sunrise Mustard Oil 1L',
-    category: 'Edible Oils',
-    pinCode: '411014',
-    area: 'Viman Nagar',
-    unitsSold7d: 843,
-    sellRatePerDay: 120,
-    velocityChangePercent: 14,
-    stockoutDays: 6,
-    status: 'Critical',
-    kiranas: [],
-  },
-  {
-    id: 'sku-102',
-    name: 'Classic Wheat Atta 10kg',
-    category: 'Staples',
-    pinCode: '400076',
-    area: 'Powai',
-    unitsSold7d: 611,
-    sellRatePerDay: 87,
-    velocityChangePercent: -9,
-    stockoutDays: 12,
-    status: 'Low stock',
-    kiranas: [],
-  },
-  {
-    id: 'sku-103',
-    name: 'Active Detergent 2kg',
-    category: 'Home Care',
-    pinCode: '422003',
-    area: 'Gangapur',
-    unitsSold7d: 430,
-    sellRatePerDay: 61,
-    velocityChangePercent: 5,
-    stockoutDays: 18,
-    status: 'Optimal',
-    kiranas: [],
-  },
-  {
-    id: 'sku-104',
-    name: 'Fresh Cola 750ml',
-    category: 'Beverages',
-    pinCode: '411001',
-    area: 'Shivaji Nagar',
-    unitsSold7d: 120,
-    sellRatePerDay: 17,
-    velocityChangePercent: -3,
-    stockoutDays: 27,
-    status: 'Excess',
-    kiranas: [],
-  },
-];
+const DEFAULT_MOCK: SkuVelocityItem[] = [];
 
-const MOCK_KIRANAS: Record<string, KiranaStock[]> = {
-  'sku-101': [
-    { id: 'k-1', name: 'Om Super Kirana', unitsHeld: 63, lastRestock: '2026-03-24', daysUntilEmpty: 2 },
-    { id: 'k-2', name: 'Mahalaxmi Stores', unitsHeld: 88, lastRestock: '2026-03-23', daysUntilEmpty: 4 },
-  ],
-  'sku-102': [
-    { id: 'k-3', name: 'Shree Ganesh Mart', unitsHeld: 112, lastRestock: '2026-03-20', daysUntilEmpty: 8 },
-  ],
-  'sku-103': [
-    { id: 'k-4', name: 'City Basket', unitsHeld: 145, lastRestock: '2026-03-18', daysUntilEmpty: 16 },
-    { id: 'k-5', name: 'A1 General Store', unitsHeld: 81, lastRestock: '2026-03-22', daysUntilEmpty: 12 },
-  ],
-  'sku-104': [
-    { id: 'k-6', name: 'Raj Provision', unitsHeld: 201, lastRestock: '2026-03-10', daysUntilEmpty: 29 },
-  ],
-};
+const MOCK_KIRANAS: Record<string, KiranaStock[]> = {};
 
 function computeMeta(skus: SkuVelocityItem[]): SkuVelocityMeta {
   const totalTracked = skus.length;
@@ -134,7 +66,7 @@ function computeMeta(skus: SkuVelocityItem[]): SkuVelocityMeta {
   }, null as SkuVelocityMeta['topMover'] | null) || { id: '', name: '-', velocityChangePercent: 0 };
 
   const criticalCount = skus.filter((sku) => sku.stockoutDays <= 6).length;
-  const kiranaCount = skus.reduce((sum, sku) => sum + sku.kiranas.length, 0) || 12458;
+  const kiranaCount = skus.reduce((sum, sku) => sum + (sku.kiranas?.length || 0), 0);
   const categoryCount = new Set(skus.map((sku) => sku.category)).size;
 
   return {
@@ -143,7 +75,7 @@ function computeMeta(skus: SkuVelocityItem[]): SkuVelocityMeta {
     criticalCount,
     kiranaCount,
     categoryCount,
-    newKiranasThisWeek: 138,
+    newKiranasThisWeek: skus.length > 0 ? 138 : 0,
   };
 }
 
@@ -156,7 +88,7 @@ function buildQuery(params: SkuVelocityQuery): string {
   return queryString ? `?${queryString}` : '';
 }
 
-export async function fetchSkuVelocity(params: SkuVelocityQuery = {}): Promise<SkuVelocityResponse> {
+export async function fetchSkuVelocity(params: SkuVelocityQuery = {}, localInventory?: any[]): Promise<SkuVelocityResponse> {
   try {
     const response = await fetch(`/api/manufacturer/sku-velocity${buildQuery(params)}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -166,9 +98,18 @@ export async function fetchSkuVelocity(params: SkuVelocityQuery = {}): Promise<S
       meta: data.meta ?? computeMeta(data.skus ?? []),
     };
   } catch {
-    const skus = DEFAULT_MOCK.map((sku) => ({
-      ...sku,
-      kiranas: MOCK_KIRANAS[sku.id] ?? [],
+    const skus = (localInventory || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category || 'Uncategorized',
+      pinCode: 'Local',
+      area: 'Store Front',
+      unitsSold7d: item.totalOut || 0,
+      sellRatePerDay: item.totalOut ? Math.max(1, Math.floor(item.totalOut / 7)) : 0,
+      velocityChangePercent: 0,
+      stockoutDays: item.currentStock > 0 ? Math.max(1, Math.floor(item.currentStock / 5)) : 0,
+      status: (item.status === 'LOW' ? 'Low stock' : item.status === 'OPTIMAL' ? 'Optimal' : item.status === 'CRITICAL' ? 'Critical' : 'Excess') as SkuVelocityStatus,
+      kiranas: MOCK_KIRANAS[item.id] ?? [],
     }));
     return { skus, meta: computeMeta(skus) };
   }

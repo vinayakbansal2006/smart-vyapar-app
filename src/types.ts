@@ -1,3 +1,12 @@
+/**
+ * =========================================================================
+ * TypeScript Type Definitions (types.ts)
+ * -------------------------------------------------------------------------
+ * Centralized repository for all shared TypeScript types, interfaces, 
+ * and enums used broadly across the Vyaparika application. By co-locating 
+ * types here, we ensure consistency and reduce circular dependencies.
+ * =========================================================================
+ */
 
 export enum UserRole {
   RETAILER = 'RETAILER',
@@ -117,9 +126,11 @@ export interface UserProfile {
   state?: string;
   businessCategory?: string;
   establishedYear?: string;
+  avatar_url?: string;
   bioAuthEnabled: boolean;
   notificationsEnabled: boolean;
   role?: UserRole;
+  premiumSince?: string;
 }
 
 export interface AppState {
@@ -141,6 +152,8 @@ export interface AppState {
   payments: Payment[];
   budget: number;
   connections: BusinessConnection[];
+  isPremium?: boolean;
+  premiumPlan?: 'monthly' | 'yearly';
   landingCompleted: boolean;
   signupCompleted: boolean;
   onboarded: boolean;

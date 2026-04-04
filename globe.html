@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vyaparika — Global Store Network</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #0a0e1a; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+  #map { width: 100vw; height: 100vh; z-index: 1; }
+
+  /* Remove Leaflet default styles we don't want */
+  .leaflet-control-attribution { display: none !important; }
+  .leaflet-div-icon { background: none !important; border: none !important; }
+
+  /* ── HEADER ── */
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    padding: 18px 28px;
+    display: flex; align-items: center; gap: 14px;
+    background: linear-gradient(180deg, rgba(8,12,24,0.92) 0%, rgba(8,12,24,0.6) 70%, transparent 100%);
+    pointer-events: none;
+  }
+  .logo {
+    width: 42px; height: 42px; border-radius: 14px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; font-weight: 900; color: white;
+    box-shadow: 0 4px 24px rgba(79,70,229,0.45);
+    flex-shrink: 0;
+  }
+  #header h1 { font-size: 19px; font-weight: 900; color: #f0f4ff; letter-spacing: -0.03em; }
+  #header p { font-size: 10px; font-weight: 700; color: rgba(148,163,184,0.6); text-transform: uppercase; letter-spacing: 0.14em; }
+
+  /* ── STATS BAR ── */
+  #stats {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; display: flex; gap: 0;
+    background: rgba(10, 14, 28, 0.82);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(100, 180, 255, 0.1);
+    border-radius: 22px; padding: 14px 28px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+  }
+  .stat { text-align: center; padding: 0 20px; border-right: 1px solid rgba(100, 180, 255, 0.08); }
+  .stat:last-child { border-right: none; }
+  .stat-val { font-size: 24px; font-weight: 900; color: #22d3ee; line-height: 1; }
+  .stat-label { font-size: 9px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.16em; margin-top: 4px; }
+
+  /* ── ZOOM INDICATOR ── */
+  #zoom-badge {
+    position: fixed; top: 96px; right: 24px; z-index: 1000;
+    background: rgba(10, 14, 28, 0.75);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(100, 180, 255, 0.1);
+    border-radius: 14px; padding: 10px 18px;
+    display: flex; align-items: center; gap: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  #zoom-badge .zb-icon { font-size: 14px; }
+  #zoom-badge .zb-text { font-size: 11px; font-weight: 700; color: #94a3b8; }
+  #zoom-badge .zb-val { font-size: 13px; font-weight: 900; color: #e0f2fe; }
+
+  /* ── LAYER TOGGLE ── */
+  #layer-toggle {
+    position: fixed; top: 148px; right: 24px; z-index: 1000;
+    background: rgba(10, 14, 28, 0.75);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(100, 180, 255, 0.1);
+    border-radius: 14px; padding: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .layer-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 10px;
+    border: none; cursor: pointer;
+    font-size: 11px; font-weight: 700;
+    color: #94a3b8; background: transparent;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .layer-btn:hover { background: rgba(100, 180, 255, 0.06); color: #e0f2fe; }
+  .layer-btn.active { background: rgba(34, 211, 238, 0.12); color: #22d3ee; }
+  .layer-btn .lb-icon { font-size: 14px; }
+
+  /* ── EMPTY SEARCH ── */
+  .empty-state {
+    padding: 28px 16px; text-align: center;
+  }
+  .empty-state .es-icon { font-size: 28px; margin-bottom: 10px; opacity: 0.5; }
+  .empty-state .es-title { font-size: 12px; font-weight: 800; color: #64748b; margin-bottom: 4px; }
+  .empty-state .es-desc { font-size: 10px; font-weight: 600; color: #334155; line-height: 1.5; }
+
+  /* ── STORE LIST PANEL ── */
+  #store-panel {
+    position: fixed; top: 96px; left: 24px; z-index: 1000;
+    width: 280px; max-height: calc(100vh - 160px);
+    background: rgba(10, 14, 28, 0.82);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(100, 180, 255, 0.08);
+    border-radius: 20px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  #store-panel .sp-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid rgba(100, 180, 255, 0.06);
+  }
+  #store-panel .sp-title {
+    font-size: 13px; font-weight: 900; color: #e0f2fe;
+    letter-spacing: -0.01em;
+  }
+  #store-panel .sp-subtitle {
+    font-size: 10px; font-weight: 600; color: #475569;
+    margin-top: 2px;
+  }
+  #store-panel .sp-search {
+    margin: 10px 0 0;
+    padding: 10px 14px; border-radius: 12px;
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(100, 180, 255, 0.06);
+    color: #e0f2fe; font-size: 12px; font-weight: 600;
+    outline: none; width: 100%;
+    transition: border-color 0.2s;
+  }
+  #store-panel .sp-search:focus { border-color: rgba(34, 211, 238, 0.3); }
+  #store-panel .sp-search::placeholder { color: #334155; }
+
+  .sp-search-row {
+    margin: 10px 14px 6px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+  }
+  .sp-search-btn {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(34, 211, 238, 0.18);
+    background: rgba(34, 211, 238, 0.12);
+    color: #67e8f9;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .sp-search-btn:hover {
+    background: rgba(34, 211, 238, 0.2);
+    border-color: rgba(34, 211, 238, 0.34);
+  }
+  .sp-hint {
+    margin: 0 14px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  #store-list {
+    flex: 1; overflow-y: auto; padding: 6px 10px 14px;
+  }
+  #store-list::-webkit-scrollbar { width: 4px; }
+  #store-list::-webkit-scrollbar-track { background: transparent; }
+  #store-list::-webkit-scrollbar-thumb { background: rgba(100,180,255,0.12); border-radius: 4px; }
+
+  .store-item {
+    padding: 12px 14px; border-radius: 14px; cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 2px;
+  }
+  .store-item:hover { background: rgba(34, 211, 238, 0.06); transform: translateX(2px); }
+  .store-item.active { background: rgba(34, 211, 238, 0.1); }
+  .store-item .si-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #22d3ee; flex-shrink: 0;
+    box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
+  }
+  .store-item .si-name { font-size: 12px; font-weight: 800; color: #e0f2fe; line-height: 1.2; }
+  .store-item .si-loc { font-size: 10px; font-weight: 600; color: #475569; margin-top: 2px; }
+
+  /* ── CUSTOM MARKER PULSE ── */
+  .store-marker {
+    position: relative;
+    width: 24px !important;
+    height: 24px !important;
+  }
+  .store-marker .marker-core {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #22d3ee;
+    box-shadow: 0 0 6px rgba(34,211,238,0.7), 0 0 16px rgba(34,211,238,0.25);
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+  }
+  .store-marker .marker-pulse {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(34, 211, 238, 0.12);
+    border: 1px solid rgba(34, 211, 238, 0.2);
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: pulse-ring 2.5s ease-out infinite;
+    z-index: 1;
+  }
+  @keyframes pulse-ring {
+    0% { transform: translate(-50%, -50%) scale(0.8); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
+  }
+
+  /* ── POPUP OVERRIDE ── */
+  .leaflet-popup-content-wrapper {
+    background: rgba(10, 14, 28, 0.9) !important;
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(100, 180, 255, 0.12) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5), 0 0 20px rgba(34,211,238,0.06) !important;
+    color: #e0f2fe !important;
+    padding: 0 !important;
+  }
+  .leaflet-popup-content { margin: 0 !important; }
+  .leaflet-popup-tip { background: rgba(10, 14, 28, 0.9) !important; border: none !important; }
+  .leaflet-popup-close-button {
+    color: #475569 !important; font-size: 18px !important;
+    top: 8px !important; right: 10px !important;
+  }
+  .leaflet-popup-close-button:hover { color: #22d3ee !important; }
+
+  .popup-content { padding: 18px 22px; min-width: 200px; }
+  .popup-content .pc-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 9px; font-weight: 800; color: #22d3ee;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    background: rgba(34, 211, 238, 0.08);
+    border: 1px solid rgba(34, 211, 238, 0.15);
+    padding: 4px 10px; border-radius: 8px; margin-bottom: 10px;
+  }
+  .popup-content .pc-name { font-size: 16px; font-weight: 900; color: #f0f4ff; margin-bottom: 6px; }
+  .popup-content .pc-loc { font-size: 12px; font-weight: 600; color: #64748b; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .popup-content .pc-coords {
+    font-size: 10px; font-weight: 600; color: #334155;
+    font-family: 'SF Mono', 'Cascadia Code', monospace;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid rgba(100, 180, 255, 0.06);
+  }
+
+  /* ── ZOOM CONTROLS OVERRIDE ── */
+  .leaflet-control-zoom { border: none !important; overflow: hidden; border-radius: 14px !important; box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important; }
+  .leaflet-control-zoom a {
+    background: rgba(10, 14, 28, 0.82) !important;
+    backdrop-filter: blur(16px);
+    color: #94a3b8 !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(100, 180, 255, 0.06) !important;
+    width: 38px !important; height: 38px !important; line-height: 38px !important;
+    font-size: 18px !important; font-weight: 700 !important;
+  }
+  .leaflet-control-zoom a:hover { background: rgba(34, 211, 238, 0.1) !important; color: #22d3ee !important; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    #header { padding: 12px 14px; }
+    #header h1 { font-size: 16px; }
+    #header p { font-size: 9px; }
+    .logo { width: 34px; height: 34px; border-radius: 11px; font-size: 15px; }
+
+    #store-panel {
+      top: 72px;
+      left: 12px;
+      width: calc(100% - 24px);
+      max-height: calc(100vh - 230px);
+    }
+
+    #zoom-badge { top: auto; bottom: 128px; right: 12px; }
+    #layer-toggle { top: auto; bottom: 56px; right: 12px; }
+
+    #stats { width: calc(100% - 24px); justify-content: center; bottom: 10px; }
+    .stat { padding: 0 14px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="logo">V</div>
+  <div>
+    <h1>Global Store Network</h1>
+    <p>Vyaparika • Live Locations</p>
+  </div>
+</div>
+
+<div id="zoom-badge">
+  <span class="zb-icon">🔍</span>
+  <span class="zb-text">Zoom</span>
+  <span class="zb-val" id="zoom-level">5</span>
+</div>
+
+<div id="layer-toggle"></div>
+
+<div id="store-panel">
+  <div class="sp-header">
+    <div class="sp-title">📍 Store Locations</div>
+    <div class="sp-subtitle">Search stores or any city</div>
+  </div>
+  <div class="sp-search-row">
+    <input type="text" class="sp-search" id="store-search" placeholder="Search store, city, or region..." />
+    <button id="city-search-btn" class="sp-search-btn">Go</button>
+  </div>
+  <div class="sp-hint">Press Enter or Go to search any city on the map</div>
+  <div id="store-list"></div>
+</div>
+
+<div id="stats">
+  <div class="stat"><div class="stat-val" id="store-count">0</div><div class="stat-label">Stores</div></div>
+  <div class="stat"><div class="stat-val" id="city-count">0</div><div class="stat-label">Cities</div></div>
+  <div class="stat"><div class="stat-val" id="country-count">0</div><div class="stat-label">Countries</div></div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════════════════════════════════════
+// STORE DATA
+// ═══════════════════════════════════════════
+const stores = [
+  { name: "Baner Store", city: "Pune", region: "Maharashtra", country: "India", lat: 18.5590, lng: 73.7868 },
+  { name: "Koregaon Park", city: "Pune", region: "Maharashtra", country: "India", lat: 18.5362, lng: 73.8938 },
+  { name: "Viman Nagar Hub", city: "Pune", region: "Maharashtra", country: "India", lat: 18.5679, lng: 73.9143 },
+  { name: "Andheri West", city: "Mumbai", region: "Maharashtra", country: "India", lat: 19.1364, lng: 72.8296 },
+  { name: "Connaught Place", city: "New Delhi", region: "Delhi", country: "India", lat: 28.6315, lng: 77.2167 },
+  { name: "MG Road", city: "Bangalore", region: "Karnataka", country: "India", lat: 12.9758, lng: 77.6045 },
+  { name: "T. Nagar", city: "Chennai", region: "Tamil Nadu", country: "India", lat: 13.0418, lng: 80.2341 },
+  { name: "Salt Lake", city: "Kolkata", region: "West Bengal", country: "India", lat: 22.5804, lng: 88.4168 },
+  { name: "Vastrapur", city: "Ahmedabad", region: "Gujarat", country: "India", lat: 23.0369, lng: 72.5293 },
+  { name: "Aundh Center", city: "Pune", region: "Maharashtra", country: "India", lat: 18.5581, lng: 73.8078 },
+  { name: "Whitefield", city: "Bangalore", region: "Karnataka", country: "India", lat: 12.9698, lng: 77.7499 },
+  { name: "Jubilee Hills", city: "Hyderabad", region: "Telangana", country: "India", lat: 17.4325, lng: 78.4073 },
+  { name: "Indiranagar", city: "Bangalore", region: "Karnataka", country: "India", lat: 12.9784, lng: 77.6408 },
+  { name: "Sector 17", city: "Chandigarh", region: "Punjab", country: "India", lat: 30.7415, lng: 76.7838 },
+  { name: "Civil Lines", city: "Jaipur", region: "Rajasthan", country: "India", lat: 26.9117, lng: 75.7826 },
+  { name: "Marine Drive", city: "Mumbai", region: "Maharashtra", country: "India", lat: 18.9442, lng: 72.8234 },
+  { name: "Gachibowli Tech", city: "Hyderabad", region: "Telangana", country: "India", lat: 17.4401, lng: 78.3489 },
+  { name: "Hazratganj", city: "Lucknow", region: "Uttar Pradesh", country: "India", lat: 26.8520, lng: 80.9462 },
+];
+
+// Stats
+document.getElementById('store-count').textContent = stores.length;
+document.getElementById('city-count').textContent = new Set(stores.map(s => s.city)).size;
+document.getElementById('country-count').textContent = new Set(stores.map(s => s.country)).size;
+
+// ═══════════════════════════════════════════
+// MAP INIT — Dark CartoDB tiles (real map with borders, streets, cities)
+// ═══════════════════════════════════════════
+const map = L.map('map', {
+  center: [22.5, 78.5],
+  zoom: 5,
+  minZoom: 3,
+  maxZoom: 19,
+  zoomControl: false, // Move default controls
+  attributionControl: false,
+  worldCopyJump: true,
+  maxBounds: [[-85, -180], [85, 180]],
+  maxBoundsViscosity: 1.0,
+});
+
+// Place zoom controls at bottom-right for easier reach and cleaner top area
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+// Dark map tiles
+const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd',
+  maxZoom: 20,
+  noWrap: true,
+  bounds: [[-90, -180], [90, 180]],
+}).addTo(map);
+
+// Satellite imagery tiles (ESRI)
+const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 20,
+  noWrap: true,
+  bounds: [[-90, -180], [90, 180]],
+});
+
+// Satellite + labels hybrid
+const labelsOverlay = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd',
+  maxZoom: 20,
+  noWrap: true,
+  bounds: [[-90, -180], [90, 180]],
+  pane: 'overlayPane',
+});
+
+let currentLayer = 'dark';
+
+function switchLayer(layerName) {
+  currentLayer = layerName;
+  map.removeLayer(darkLayer);
+  map.removeLayer(satelliteLayer);
+  map.removeLayer(labelsOverlay);
+
+  if (layerName === 'dark') {
+    darkLayer.addTo(map);
+  } else if (layerName === 'satellite') {
+    satelliteLayer.addTo(map);
+    labelsOverlay.addTo(map);
+  }
+
+  // Update button states
+  document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-layer="' + layerName + '"]').classList.add('active');
+}
+
+// Update zoom badge
+map.on('zoomend', () => {
+  document.getElementById('zoom-level').textContent = map.getZoom();
+});
+
+// ═══════════════════════════════════════════
+// STORE MARKERS
+// ═══════════════════════════════════════════
+const markers = [];
+
+stores.forEach((store, idx) => {
+  // Use circleMarker for pixel-perfect geographic accuracy at ALL zoom levels
+  const circleBase = L.circleMarker([store.lat, store.lng], {
+    radius: 5,
+    color: 'rgba(34, 211, 238, 0.4)',
+    weight: 8,
+    fillColor: '#22d3ee',
+    fillOpacity: 1,
+    pane: 'markerPane',
+  }).addTo(map);
+
+  // Outer glow ring
+  const circleGlow = L.circleMarker([store.lat, store.lng], {
+    radius: 12,
+    color: 'rgba(34, 211, 238, 0.15)',
+    weight: 1,
+    fillColor: 'rgba(34, 211, 238, 0.06)',
+    fillOpacity: 1,
+    pane: 'markerPane',
+    interactive: false,
+  }).addTo(map);
+
+  // Rich popup
+  const popupHTML = `
+    <div class="popup-content">
+      <div class="pc-badge">● VYAPARIKA STORE</div>
+      <div class="pc-name">${store.name}</div>
+      <div class="pc-loc">📍 ${store.city}, ${store.region}</div>
+      <div class="pc-loc">🌍 ${store.country}</div>
+      <div class="pc-coords">${store.lat.toFixed(4)}°N, ${store.lng.toFixed(4)}°E</div>
+    </div>
+  `;
+
+  circleBase.bindPopup(popupHTML, {
+    maxWidth: 280,
+    offset: [0, -8],
+  });
+
+  circleBase.on('mouseover', function() { this.openPopup(); });
+
+  markers.push({ marker: circleBase, glow: circleGlow, store, idx });
+});
+
+// ═══════════════════════════════════════════
+// STORE LIST PANEL
+// ═══════════════════════════════════════════
+const storeListEl = document.getElementById('store-list');
+const searchInput = document.getElementById('store-search');
+const citySearchBtn = document.getElementById('city-search-btn');
+let tempSearchMarker = null;
+let citySearchDebounce = null;
+
+async function flyToCity(query, opts = {}) {
+  const updateButton = opts.updateButton !== false;
+  const q = (query || '').trim();
+  if (!q) return;
+
+  if (updateButton && citySearchBtn) {
+    citySearchBtn.textContent = 'Locating...';
+    citySearchBtn.disabled = true;
+    citySearchBtn.style.opacity = '0.7';
+  }
+
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+    const data = await res.json();
+    if (!data || data.length === 0) throw new Error('Not found');
+
+    const hit = data[0];
+    const lat = Number(hit.lat);
+    const lon = Number(hit.lon);
+    map.flyTo([lat, lon], 11, { duration: 1.8 });
+
+    if (tempSearchMarker) {
+      map.removeLayer(tempSearchMarker);
+      tempSearchMarker = null;
+    }
+
+    tempSearchMarker = L.circleMarker([lat, lon], {
+      radius: 8,
+      color: 'rgba(167, 139, 250, 0.8)',
+      weight: 3,
+      fillColor: '#a78bfa',
+      fillOpacity: 0.75,
+    }).addTo(map);
+
+    tempSearchMarker.bindPopup(
+      `<div class="popup-content"><div class="pc-badge" style="color:#a78bfa; border-color:#a78bfa; background:transparent;">● CITY RESULT</div><div class="pc-name">${hit.display_name.split(',')[0]}</div><div class="pc-loc">${hit.display_name}</div></div>`
+    ).openPopup();
+
+    if (updateButton && citySearchBtn) {
+      citySearchBtn.textContent = 'Found';
+    }
+  } catch {
+    if (updateButton && citySearchBtn) {
+      citySearchBtn.textContent = 'Not Found';
+    }
+  } finally {
+    if (updateButton && citySearchBtn) {
+      setTimeout(() => {
+        citySearchBtn.textContent = 'Go';
+        citySearchBtn.disabled = false;
+        citySearchBtn.style.opacity = '1';
+      }, 1200);
+    }
+  }
+}
+
+function renderStoreList(filter = '') {
+  const filtered = stores.filter(s =>
+    !filter ||
+    s.name.toLowerCase().includes(filter) ||
+    s.city.toLowerCase().includes(filter) ||
+    s.region.toLowerCase().includes(filter)
+  );
+
+  if (filtered.length === 0) {
+    storeListEl.innerHTML = `
+      <div class="empty-state">
+        <div class="es-icon">🌍</div>
+        <div class="es-title">Explore Global Locations</div>
+        <div class="es-desc">We don't have a store there yet.</div>
+        <button id="global-search-btn" class="mt-4 px-3 py-2 bg-indigo-600 rounded-xl text-white text-xs font-bold w-full hover:bg-indigo-500 transition-colors shadow-lg">
+          Search city "${filter}"
+        </button>
+      </div>
+    `;
+
+    setTimeout(() => {
+      const btn = document.getElementById('global-search-btn');
+      if (btn) {
+        btn.onclick = () => flyToCity(filter);
+      }
+    }, 0);
+    return;
+  }
+
+  storeListEl.innerHTML = filtered.map((s, i) => {
+    const realIdx = stores.indexOf(s);
+    return `
+      <div class="store-item" data-idx="${realIdx}">
+        <div class="si-dot"></div>
+        <div>
+          <div class="si-name">${s.name}</div>
+          <div class="si-loc">${s.city}, ${s.region}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Click handlers
+  storeListEl.querySelectorAll('.store-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.idx);
+      const s = stores[idx];
+      map.flyTo([s.lat, s.lng], 16, { duration: 1.5 });
+      markers[idx].marker.openPopup();
+
+      // Highlight active
+      storeListEl.querySelectorAll('.store-item').forEach(e => e.classList.remove('active'));
+      el.classList.add('active');
+    });
+  });
+}
+
+renderStoreList();
+
+searchInput.addEventListener('input', (e) => {
+  const raw = e.target.value;
+  const query = raw.trim();
+  renderStoreList(raw.toLowerCase());
+
+  // Auto-search city from the search bar itself.
+  if (citySearchDebounce) clearTimeout(citySearchDebounce);
+  if (query.length < 3) return;
+  citySearchDebounce = setTimeout(() => {
+    flyToCity(query, { updateButton: false });
+  }, 700);
+});
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    flyToCity(searchInput.value);
+  }
+});
+
+citySearchBtn.addEventListener('click', () => {
+  flyToCity(searchInput.value);
+});
+
+// ═══════════════════════════════════════════
+// FIT ALL MARKERS ON LOAD
+// ═══════════════════════════════════════════
+const group = L.featureGroup(markers.map(m => m.marker));
+map.fitBounds(group.getBounds().pad(0.15));
+
+// Scale marker size with zoom
+function updateMarkerSizes() {
+  const z = map.getZoom();
+  const coreR = z <= 4 ? 3 : z <= 7 ? 5 : z <= 10 ? 6 : 7;
+  const glowR = z <= 4 ? 6 : z <= 7 ? 10 : z <= 10 ? 14 : 18;
+  markers.forEach(m => {
+    m.marker.setRadius(coreR);
+    m.glow.setRadius(glowR);
+  });
+}
+map.on('zoomend', updateMarkerSizes);
+updateMarkerSizes();
+
+// ═══════════════════════════════════════════
+// LAYER TOGGLE BUTTONS
+// ═══════════════════════════════════════════
+const layerToggle = document.getElementById('layer-toggle');
+layerToggle.innerHTML = `
+  <button class="layer-btn active" data-layer="dark" onclick="switchLayer('dark')">
+    <span class="lb-icon">🌙</span> Dark Map
+  </button>
+  <button class="layer-btn" data-layer="satellite" onclick="switchLayer('satellite')">
+    <span class="lb-icon">🛰️</span> Satellite
+  </button>
+`;
+</script>
+</body>
+</html>

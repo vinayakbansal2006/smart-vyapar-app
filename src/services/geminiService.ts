@@ -1,3 +1,13 @@
+/**
+ * =========================================================================
+ * Gemini AI Integration Service (geminiService.ts)
+ * -------------------------------------------------------------------------
+ * Bridges the app to Google's Gen AI services. Analyzes inventory health,
+ * interprets product imagery through multimodal features, calculates SKU
+ * velocity insights, predicting product info from barcodes. 
+ * Requires `process.env.API_KEY` mapping to a valid Gemini API key.
+ * =========================================================================
+ */
 
 // Fix: Use strictly GoogleGenAI with named parameter and process.env.API_KEY
 import { GoogleGenAI, Type } from "@google/genai";
@@ -45,7 +55,7 @@ export const getInventoryInsights = async (inventory: SKU[], role: UserRole, log
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-1.5-flash',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -90,6 +100,43 @@ export interface SKUPrediction {
   reasoning: string;
 }
 
+const KEYWORD_CATEGORY_MAP: Record<string, string[]> = {
+  Dairy: ['milk', 'curd', 'yogurt', 'paneer', 'cheese', 'butter', 'ghee'],
+  Grains: ['rice', 'wheat', 'atta', 'flour', 'dal', 'lentil', 'pulse', 'oats'],
+  Snacks: ['chips', 'biscuit', 'cookie', 'namkeen', 'snack', 'kurkure'],
+  Beverages: ['tea', 'coffee', 'juice', 'drink', 'cola', 'water', 'soda'],
+  'Personal Care': ['soap', 'shampoo', 'toothpaste', 'lotion', 'cream', 'facewash'],
+  Cleaning: ['detergent', 'cleaner', 'phenyl', 'bleach', 'dishwash'],
+  Spices: ['masala', 'spice', 'turmeric', 'chilli', 'cumin', 'jeera', 'pepper'],
+  Oils: ['oil', 'mustard', 'sunflower', 'groundnut', 'olive'],
+  Mobile: ['mobile', 'phone', 'smartphone', 'iphone', 'android'],
+  Laptop: ['laptop', 'notebook', 'macbook'],
+  Accessories: ['charger', 'cable', 'cover', 'case', 'adapter', 'keyboard', 'mouse'],
+  Appliances: ['mixer', 'fridge', 'refrigerator', 'oven', 'fan', 'ac', 'cooler'],
+  Audio: ['speaker', 'earphone', 'earbud', 'headphone', 'soundbar', 'mic'],
+  Wearables: ['watch', 'smartwatch', 'band', 'fitness'],
+  Components: ['ram', 'ssd', 'hdd', 'processor', 'gpu', 'motherboard'],
+};
+
+function inferCategoryFromName(productName: string, categories: string[]): string {
+  const text = productName.toLowerCase();
+  for (const category of categories) {
+    const keywords = KEYWORD_CATEGORY_MAP[category] || [];
+    if (keywords.some((kw) => text.includes(kw))) {
+      return category;
+    }
+  }
+  return categories.includes('Snacks') ? 'Snacks' : (categories[0] || 'General');
+}
+
+function normalizeUnit(candidate: string | undefined): string {
+  if (!candidate) return 'Units';
+  const normalized = candidate.trim().toLowerCase();
+  if (normalized === 'piece' || normalized === 'pieces' || normalized === 'pcs') return 'Units';
+  const exact = UNITS.find((u) => u.toLowerCase() === normalized);
+  return exact || 'Units';
+}
+
 export const predictSKUMetadata = async (productName: string, shopType: ShopType): Promise<SKUPrediction | null> => {
   if (!productName || productName.length < 3) return null;
   
@@ -116,14 +163,32 @@ export const predictSKUMetadata = async (productName: string, shopType: ShopType
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-1.5-flash',
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
-    return JSON.parse(response.text || 'null');
+    const parsed = JSON.parse(response.text || 'null') as Partial<SKUPrediction> | null;
+    if (!parsed) return null;
+    const category = parsed.category && cats.includes(parsed.category)
+      ? parsed.category
+      : inferCategoryFromName(productName, cats);
+    return {
+      name: productName,
+      category,
+      unit: normalizeUnit(parsed.unit),
+      confidence: parsed.confidence || 'MEDIUM',
+      reasoning: parsed.reasoning || 'AI prediction generated.',
+    };
   } catch (error) {
     console.error("Vyaparika Metadata Prediction Error:", error);
-    return null;
+    // Smart fallback prediction based on the typed product name.
+    return {
+      name: productName,
+      category: inferCategoryFromName(productName, cats),
+      unit: 'Units',
+      confidence: 'MEDIUM',
+      reasoning: "Fallback prediction applied because the AI service is currently unavailable."
+    };
   }
 };
 
@@ -153,7 +218,7 @@ export const identifyProductFromImage = async (base64Image: string, shopType: Sh
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-1.5-flash',
       // Fix: Use the standard part-based structure for multimodal inputs
       contents: {
         parts: [
@@ -165,7 +230,13 @@ export const identifyProductFromImage = async (base64Image: string, shopType: Sh
     });
     return JSON.parse(response.text || 'null');
   } catch (error) {
-    console.error("Vyaparika Vision Error:", error);
-    return null;
+    console.error("Vyaparika Image Identification Error:", error);
+    return {
+      name: "Scanned Item",
+      category: "General",
+      unit: "Pieces",
+      confidence: 'LOW',
+      reasoning: "Fallback identification due to API error."
+    };
   }
 };

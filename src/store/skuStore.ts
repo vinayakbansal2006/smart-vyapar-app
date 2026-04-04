@@ -1,3 +1,13 @@
+/**
+ * =========================================================================
+ * SKU Global State Store (skuStore.ts)
+ * -------------------------------------------------------------------------
+ * Implements a Zustand-based global state for tracking SKUs across 
+ * various components (Dashboard, network view, analytics grids).
+ * Handles data fetching states, filtering, sorting properties for 
+ * stockouts and sales velocity.
+ * =========================================================================
+ */
 import { create } from 'zustand';
 import { fetchSkuKiranas, fetchSkuVelocity, type KiranaStock, type SkuVelocityItem, type SkuVelocityMeta, type SkuVelocityStatus } from '../services/skuVelocityService';
 
@@ -21,7 +31,7 @@ interface SkuStoreState {
   loading: boolean;
   lastUpdated: number | null;
   expandedSkuIds: string[];
-  loadSkus: () => Promise<void>;
+  loadSkus: (localInventory?: any[]) => Promise<void>;
   loadKiranas: (skuId: string) => Promise<void>;
   setSearch: (search: string) => void;
   setStatus: (status: SkuStatusFilter) => void;
@@ -58,14 +68,14 @@ export const useSkuStore = create<SkuStoreState>((set, get) => ({
   lastUpdated: null,
   expandedSkuIds: [],
 
-  loadSkus: async () => {
+  loadSkus: async (localInventory?: any[]) => {
     const { filters } = get();
     set({ loading: true });
     const response = await fetchSkuVelocity({
       city: filters.city,
       dateRange: filters.dateRange,
       category: filters.category,
-    });
+    }, localInventory);
     set({
       skus: response.skus,
       meta: response.meta,

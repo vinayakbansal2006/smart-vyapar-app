@@ -1,4 +1,8 @@
 
+// ==========================================
+// IMPORT SECTION
+// React, Lucide Icons, Types, Constants, Services, and UI Components
+// ==========================================
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   LayoutDashboard, Package, BrainCircuit, Settings, Plus, Search,
@@ -19,6 +23,9 @@ import { signInWithGoogle, sendPhoneOtp, verifyPhoneOtp, upsertUserProfile, onAu
 import LoginPage from './components/auth/LoginPage';
 import SkuVelocityPage from './components/inventory/SkuVelocityPage';
 import CampaignsPage from './components/campaigns/CampaignsPage';
+import BusinessProfilePage from './components/profile/BusinessProfilePage';
+import NetworkPage from './components/network/NetworkPage';
+import PremiumPaymentPage from './components/premium/PremiumPaymentPage';
 import {
   followBusiness as connectionsServiceFollow,
   acceptConnection as connectionsServiceAccept,
@@ -67,7 +74,7 @@ class ErrorBoundary extends React.Component<
             <div className="w-16 h-16 rounded-3xl mx-auto flex items-center justify-center" style={{ background: 'rgba(244,63,94,0.1)' }}>
               <AlertTriangle className="w-8 h-8 text-rose-500" />
             </div>
-            <h2 className="text-xl font-black text-slate-800 dark:text-white">Something went wrong</h2>
+            <h2 className="text-xl font-black text-slate-800 text-slate-900 dark:text-white">Something went wrong</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">{this.state.error?.message || 'An unexpected error occurred.'}</p>
             <button
               onClick={() => { this.setState({ hasError: false, error: null }); }}
@@ -83,7 +90,10 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-// --- Global UI Components ---
+// ==========================================
+// SHARED GLOBAL UI COMPONENTS
+// Common building blocks like Button, Card, Badge, ExpiryAlertBadge
+// ==========================================
 
 const Button: React.FC<{ 
   onClick?: () => void; 
@@ -92,26 +102,30 @@ const Button: React.FC<{
   className?: string;
   fullWidth?: boolean;
   disabled?: boolean;
+  loading?: boolean;
   type?: 'button' | 'submit';
-}> = ({ onClick, variant = 'primary', children, className = '', fullWidth = false, disabled = false, type = 'button' }) => {
-  const base = "px-5 py-3 rounded-2xl font-bold text-sm tracking-wide transition-all duration-200 flex items-center justify-center gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none select-none cursor-pointer";
+}> = ({ onClick, variant = 'primary', children, className = '', fullWidth = false, disabled = false, loading = false, type = 'button' }) => {
+  const base = "min-h-12 px-5 py-3 rounded-[10px] font-bold text-sm tracking-wide transition-all duration-150 flex items-center justify-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none select-none cursor-pointer";
   const variants = {
-    primary: "bg-gradient-to-b from-indigo-500 to-indigo-700 text-white shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:-translate-y-0.5 active:translate-y-0 active:shadow-none btn-glow",
-    secondary: "bg-white dark:bg-slate-800/80 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/60 hover:bg-indigo-50/60 dark:hover:bg-indigo-900/20 hover:-translate-y-0.5 active:translate-y-0 shadow-sm",
-    danger: "bg-gradient-to-b from-rose-50 to-rose-100 dark:from-rose-900/30 dark:to-rose-900/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 hover:from-rose-100 hover:to-rose-200 dark:hover:from-rose-900/40 active:scale-95",
-    ghost: "bg-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 active:scale-95 hover:-translate-y-0.5",
-    success: "bg-gradient-to-b from-emerald-400 to-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:-translate-y-0.5 active:translate-y-0 btn-glow",
-    ai: "bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 text-white shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:-translate-y-0.5 active:translate-y-0 btn-glow"
+    primary: "app-primary-btn shadow-sm hover:opacity-95 active:opacity-90",
+    secondary: "app-secondary-btn hover:bg-slate-50 dark:hover:bg-slate-800/60",
+    danger: "app-danger-btn hover:bg-rose-50 dark:hover:bg-rose-900/20",
+    ghost: "bg-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60",
+    success: "min-h-12 rounded-[10px] text-white border border-transparent hover:opacity-95 active:opacity-90",
+    ai: "app-primary-btn shadow-sm hover:opacity-95 active:opacity-90"
   };
+  const successStyle = variant === 'success' ? { background: 'var(--color-success)', color: 'var(--color-on-accent)' } : undefined;
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`}>
+    <button type={type} onClick={onClick} disabled={disabled || loading} className={`${base} ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`} style={successStyle}>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : null}
       {children}
     </button>
   );
 };
 
 const Card: React.FC<{ children: React.ReactNode; className?: string; onClick?: () => void }> = ({ children, className = '', onClick }) => (
-  <div onClick={onClick} className={`bg-white dark:bg-slate-800/70 rounded-3xl p-5 border border-slate-100 dark:border-slate-700/60 card-pro ${className} ${onClick ? 'cursor-pointer active:scale-[0.99]' : ''}`}>
+  <div onClick={onClick} className={`rounded-2xl p-5 border card-pro ${className} ${onClick ? 'cursor-pointer active:scale-[0.99]' : ''}`}
+    style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
     {children}
   </div>
 );
@@ -327,18 +341,18 @@ const getSavedUserProfiles = (): SavedUserProfile[] => {
 };
 
 const findSavedProfileByEmail = (email: string): SavedUserProfile | null =>
-  getSavedUserProfiles().find(p => p.email.toLowerCase() === email.toLowerCase()) ?? null;
+  getSavedUserProfiles().find(p => p?.email?.toLowerCase?.() === email.toLowerCase()) ?? null;
 
 const saveUserProfileToRegistry = (email: string, role: UserRole | undefined, language: string | undefined, profile: Partial<UserProfile>) => {
   if (!email) return;
-  const existing = getSavedUserProfiles().filter(p => p.email.toLowerCase() !== email.toLowerCase());
+  const existing = getSavedUserProfiles().filter(p => p?.email?.toLowerCase?.() !== email.toLowerCase());
   existing.push({ email, role, language, profile, savedAt: new Date().toISOString() });
   localStorage.setItem(USER_PROFILES_KEY, JSON.stringify(existing));
 };
 
 const removeProfileFromRegistry = (email: string) => {
   if (!email) return;
-  const updated = getSavedUserProfiles().filter(p => p.email.toLowerCase() !== email.toLowerCase());
+  const updated = getSavedUserProfiles().filter(p => p?.email?.toLowerCase?.() !== email.toLowerCase());
   localStorage.setItem(USER_PROFILES_KEY, JSON.stringify(updated));
 };
 
@@ -384,7 +398,10 @@ const findAccountByAppId = (appId: string, password: string): AccountRecord | nu
 const findAccount = (email: string, password: string): AccountRecord | null =>
   getAccounts().find(a => a.email === email && a.password === password) ?? null;
 
-// --- Authentication Components ---
+// ==========================================
+// CORE APP COMPONENTS: AUTHENTICATION FLOW
+// Component for handling login, mobile OTP, and signups
+// ==========================================
 
 const AuthFlow: React.FC<{ onAuthSuccess: (method: string, data?: any) => void, t: any, lastLogins: LoginRecord[] }> = ({ onAuthSuccess, t, lastLogins }) => {
   const [step, setStep] = useState<'main' | 'mobile' | 'otp' | 'gmail_email' | 'gmail_password' | 'forgot' | 'signup'>('main');
@@ -1062,6 +1079,7 @@ const AuthFlow: React.FC<{ onAuthSuccess: (method: string, data?: any) => void, 
 const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.SetStateAction<AppState>>, t: any, onDeleteAccount?: () => void, onLogout?: () => void }> = ({ state, setState, t, onDeleteAccount, onLogout }) => {
   const [activeSubTab, setActiveSubTab] = useState('profile');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [showPremiumPage, setShowPremiumPage] = useState(false);
   // Settings sub-state
   const [notifStock, setNotifStock] = useState(true);
   const [notifSummary, setNotifSummary] = useState(false);
@@ -1075,9 +1093,47 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const profile = state.profile;
+  const profileStats = {
+    totalOrders: state.movementLogs.filter(log => log.type === 'OUT').length,
+    productsListed: state.inventory.length,
+    networkPartners: state.connections.filter(conn => conn.status === 'CONNECTED').length,
+  };
+  const featuredProducts = state.inventory.map((sku) => ({
+    id: sku.id,
+    name: sku.name,
+  }));
+  const recentProfileActivity = [
+    ...(state.movementLogs.length > 0
+      ? [{
+          id: `stock-${state.movementLogs[0].id}`,
+          type: 'shipment' as const,
+          title: 'Latest stock movement recorded',
+          date: new Date(state.movementLogs[0].timestamp).toLocaleString('en-IN'),
+        }]
+      : []),
+    ...(state.connections.some(conn => conn.status === 'CONNECTED')
+      ? [{
+          id: 'connections-summary',
+          type: 'deal' as const,
+          title: `${state.connections.filter(conn => conn.status === 'CONNECTED').length} active network partners`,
+          date: 'Network updated',
+        }]
+      : []),
+  ];
 
   const updateProfile = (updates: Partial<UserProfile>) => {
     setState(s => ({ ...s, profile: { ...s.profile, ...updates } }));
+  };
+
+  const handleLogoUpload: React.ChangeEventHandler<HTMLInputElement> = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateProfile({ avatar_url: String(reader.result || '') });
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
   };
 
   const handleLogout = async () => {
@@ -1123,6 +1179,26 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
     }));
   };
 
+  if (showPremiumPage) {
+    return (
+      <div className="max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <PremiumPaymentPage
+          onBack={() => setShowPremiumPage(false)}
+          onSuccess={(plan) => {
+            setState(s => ({
+              ...s,
+              isPremium: true,
+              premiumPlan: plan,
+              profile: { ...s.profile, premiumSince: new Date().toISOString() }
+            }));
+          }}
+          isPremium={state.isPremium}
+          currentPlan={state.premiumPlan}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1147,88 +1223,46 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
             </button>
           ))}
         </div>
-        <Button variant="danger" className="h-11 px-5 text-sm" onClick={handleLogout}>
-          <LogOut className="w-4 h-4" /> Logout
-        </Button>
+        <div className="flex items-center gap-3">
+          {state.role === UserRole.MANUFACTURER && (
+            state.isPremium ? (
+              <span className="flex items-center gap-2 h-11 px-5 rounded-xl text-sm font-black text-amber-700 bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-400">
+                <Star className="w-4 h-4" /> Premium Active
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowPremiumPage(true)}
+                className="flex items-center gap-2 h-11 px-5 rounded-xl text-sm font-black text-white transition-all active:scale-[0.97] shadow-lg"
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', boxShadow: '0 4px 20px rgba(245,158,11,0.3)' }}
+              >
+                <Star className="w-4 h-4" /> Upgrade to Premium
+              </button>
+            )
+          )}
+          <Button variant="danger" className="h-11 px-5 text-sm" onClick={handleLogout}>
+            <LogOut className="w-4 h-4" /> Logout
+          </Button>
+        </div>
       </div>
 
       {activeSubTab === 'profile' && (
         <div className="space-y-8">
           {!isEditingProfile ? (
-            <div className="space-y-8 animate-in fade-in duration-300">
-              {/* Business Card Visualization */}
-              <div className="relative group perspective-1000">
-                <div className="bg-gradient-to-br from-indigo-700 via-indigo-600 to-indigo-800 text-white rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden transition-all duration-500">
-                  <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl group-hover:bg-white/10 transition-colors" />
-                  <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-400/10 rounded-full -ml-32 -mb-32 blur-2xl" />
-                  
-                  <div className="relative z-10 flex flex-col md:flex-row justify-between h-full gap-8">
-                    <div className="space-y-6">
-                      <div>
-                        <div className="bg-white/20 w-fit px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase mb-4 backdrop-blur-md border border-white/10">
-                          {state.role}
-                        </div>
-                        <h2 className="text-4xl font-black tracking-tighter">{profile.shopName || 'Business Name'}</h2>
-                        <p className="text-indigo-200 font-bold flex items-center gap-2 mt-1">
-                          <MapPin className="w-4 h-4" /> {profile.city || 'Location not set'}, {profile.state || 'India'}
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="flex items-center gap-3 text-sm font-medium">
-                          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10"><User className="w-5 h-5" /></div>
-                          <div><p className="text-[10px] opacity-60 uppercase font-bold">Owner</p><p>{profile.name || 'Set Name'}</p></div>
-                        </div>
-                        <div className="flex items-center gap-3 text-sm font-medium">
-                          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10"><Phone className="w-5 h-5" /></div>
-                          <div><p className="text-[10px] opacity-60 uppercase font-bold">Contact</p><p>{profile.phone || '+91 XXXXX XXXXX'}</p></div>
-                        </div>
-                        <div className="flex items-center gap-3 text-sm font-medium">
-                          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10"><Calendar className="w-5 h-5" /></div>
-                          <div><p className="text-[10px] opacity-60 uppercase font-bold">Est. Year</p><p>{profile.establishedYear || 'N/A'}</p></div>
-                        </div>
-                        <div className="flex items-center gap-3 text-sm font-medium">
-                          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10"><FileText className="w-5 h-5" /></div>
-                          <div><p className="text-[10px] opacity-60 uppercase font-bold">GSTIN</p><p>{profile.gstin || 'Not Provided'}</p></div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col justify-between items-end gap-6">
-                      <div className="w-24 h-24 bg-white rounded-3xl p-2 shadow-inner flex items-center justify-center">
-                        <div className="w-full h-full bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden border border-slate-200">
-                          <Package className="w-10 h-10 text-indigo-600" />
-                        </div>
-                      </div>
-                      <Button variant="ghost" onClick={() => setIsEditingProfile(true)} className="bg-white/10 text-white hover:bg-white/20 backdrop-blur-md px-6">
-                        Edit Business Profile
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Stats Card Group */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                 <div className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl flex items-center gap-4 p-6 border border-slate-100 dark:border-slate-700/60">
-                    <div className="w-12 h-12 rounded-2xl text-emerald-600 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' }}><CheckCircle className="w-6 h-6" /></div>
-                    <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Profile Strength</p><p className="font-black text-xl text-slate-800 dark:text-white">Strong</p></div>
-                 </div>
-                 <div className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl flex items-center gap-4 p-6 border border-slate-100 dark:border-slate-700/60">
-                    <div className="w-12 h-12 rounded-2xl text-indigo-600 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)' }}><ShieldCheck className="w-6 h-6" /></div>
-                    <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Verification</p><p className="font-black text-xl text-slate-800 dark:text-white">Self-Verified</p></div>
-                 </div>
-                 <div className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl flex items-center gap-4 p-6 border border-slate-100 dark:border-slate-700/60">
-                    <div className="w-12 h-12 rounded-2xl text-amber-600 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)' }}><Globe className="w-6 h-6" /></div>
-                    <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Visibility</p><p className="font-black text-xl text-slate-800 dark:text-white">Regional</p></div>
-                 </div>
-              </div>
-            </div>
+            <BusinessProfilePage
+              profile={profile}
+              role={state.role!}
+              isOwnProfile={true}
+              onEdit={() => setIsEditingProfile(true)}
+              stats={profileStats}
+              featuredProducts={featuredProducts}
+              recentActivity={recentProfileActivity}
+              isPremium={state.isPremium}
+            />
           ) : (
             <div className="animate-in slide-in-from-right-4 duration-300 space-y-8">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-2xl font-black text-slate-900 dark:text-white font-display mb-1">Edit Business Identity</h3>
+                  <h3 className="text-2xl font-black text-slate-900 text-slate-900 dark:text-white font-display mb-1">Edit Business Identity</h3>
                   <p className="text-slate-500 text-sm">Update your business and contact information</p>
                 </div>
                 <Button variant="ghost" onClick={() => setIsEditingProfile(false)}><X /> Close</Button>
@@ -1238,14 +1272,37 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
                 <h4 className="flex items-center gap-2 font-black text-indigo-600 uppercase tracking-widest text-[10px]">
                   <User className="w-3 h-3" /> Personal Identity
                 </h4>
+                <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/60">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Business Logo</label>
+                  <div className="flex flex-col sm:flex-row sm:items-center items-start gap-4">
+                    <div className="w-20 h-20 rounded-2xl border border-blue-100 bg-blue-50 flex items-center justify-center overflow-hidden dark:border-slate-700 dark:bg-slate-900">
+                      {profile.avatar_url ? (
+                        <img src={profile.avatar_url} alt="Business logo" className="w-full h-full object-cover" />
+                      ) : (
+                        <Building2 className="w-8 h-8 text-blue-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-2 sm:py-1">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoUpload}
+                        className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-blue-600 file:px-4 file:py-2 file:text-sm file:font-bold file:text-white hover:file:bg-blue-700 dark:text-slate-300 align-middle"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Upload a clear logo or avatar for your business profile.
+                      </p>
+                    </div>
+                  </div>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Owner Name</label>
-                    <input type="text" value={profile.name} onChange={e => updateProfile({ name: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="e.g. Rahul Sharma" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Owner Name</label>
+                    <input type="text" value={profile.name} onChange={e => updateProfile({ name: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="e.g. Rahul Sharma" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Phone Number</label>
-                    <input type="tel" value={profile.phone} onChange={e => updateProfile({ phone: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="+91 XXXX" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Phone Number</label>
+                    <input type="tel" value={profile.phone} onChange={e => updateProfile({ phone: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="+91 XXXX" />
                   </div>
                 </div>
               </div>
@@ -1256,16 +1313,16 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Registered Shop Name</label>
-                    <input type="text" value={profile.shopName} onChange={e => updateProfile({ shopName: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="e.g. Sai Kirana Store" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Registered Shop Name</label>
+                    <input type="text" value={profile.shopName} onChange={e => updateProfile({ shopName: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="e.g. Sai Kirana Store" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Established Year</label>
-                    <input type="text" value={profile.establishedYear} onChange={e => updateProfile({ establishedYear: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="e.g. 1998" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Established Year</label>
+                    <input type="text" value={profile.establishedYear} onChange={e => updateProfile({ establishedYear: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="e.g. 1998" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Category</label>
-                    <input type="text" value={profile.businessCategory} onChange={e => updateProfile({ businessCategory: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="e.g. Retail / Grocery" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Category</label>
+                    <input type="text" value={profile.businessCategory} onChange={e => updateProfile({ businessCategory: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="e.g. Retail / Grocery" />
                   </div>
                 </div>
               </div>
@@ -1276,20 +1333,20 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Physical Address</label>
-                    <textarea value={profile.address} onChange={e => updateProfile({ address: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white h-24 resize-none" placeholder="Shop No, Street, Landmark..." />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Physical Address</label>
+                    <textarea value={profile.address} onChange={e => updateProfile({ address: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white h-24 resize-none shadow-sm" placeholder="Shop No, Street, Landmark..." />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">City</label>
-                    <input type="text" value={profile.city} onChange={e => updateProfile({ city: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="Mumbai" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">City</label>
+                    <input type="text" value={profile.city} onChange={e => updateProfile({ city: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="Mumbai" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">State</label>
-                    <input type="text" value={profile.state} onChange={e => updateProfile({ state: e.target.value })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="Maharashtra" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">State</label>
+                    <input type="text" value={profile.state} onChange={e => updateProfile({ state: e.target.value })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="Maharashtra" />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">GSTIN (Optional)</label>
-                    <input type="text" value={profile.gstin} onChange={e => updateProfile({ gstin: e.target.value.toUpperCase() })} className="input-pro w-full bg-white dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-5 font-bold dark:text-white" placeholder="27XXXXX0000X0Z0" />
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GSTIN (Optional)</label>
+                    <input type="text" value={profile.gstin} onChange={e => updateProfile({ gstin: e.target.value.toUpperCase() })} className="input-pro w-full bg-white border border-blue-100 dark:bg-slate-800/80 dark:border-slate-700/60 rounded-2xl p-5 font-bold text-slate-900 dark:text-white shadow-sm" placeholder="27XXXXX0000X0Z0" />
                   </div>
                 </div>
               </div>
@@ -1309,7 +1366,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-1">
               <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}><Globe className="w-4 h-4 text-white" /></div>
-              <div><h3 className="font-black text-slate-900 dark:text-white text-base">Language</h3><p className="text-xs text-slate-400 font-semibold">Choose your preferred language</p></div>
+              <div><h3 className="font-black text-slate-900 text-slate-900 dark:text-white text-base">Language</h3><p className="text-xs text-slate-400 font-semibold">Choose your preferred language</p></div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               {INDIAN_LANGUAGES.slice(0, 9).map(lang => {
@@ -1331,7 +1388,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-1">
               <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Sun className="w-4 h-4 text-white" /></div>
-              <div><h3 className="font-black text-slate-900 dark:text-white text-base">Appearance</h3><p className="text-xs text-slate-400 font-semibold">Choose how Vyaparika looks</p></div>
+              <div><h3 className="font-black text-slate-900 text-slate-900 dark:text-white text-base">Appearance</h3><p className="text-xs text-slate-400 font-semibold">Choose how Vyaparika looks</p></div>
             </div>
             <div className="grid grid-cols-3 gap-3">
               {[
@@ -1365,7 +1422,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-1">
               <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}><Bell className="w-4 h-4 text-white" /></div>
-              <div><h3 className="font-black text-slate-900 dark:text-white text-base">Notifications</h3><p className="text-xs text-slate-400 font-semibold">Manage alerts &amp; reminders</p></div>
+              <div><h3 className="font-black text-slate-900 text-slate-900 dark:text-white text-base">Notifications</h3><p className="text-xs text-slate-400 font-semibold">Manage alerts &amp; reminders</p></div>
             </div>
             <div className="space-y-3">
               {[
@@ -1374,7 +1431,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
               ].map(item => (
                 <div key={item.label} className="card-pro bg-white dark:bg-slate-800/70 rounded-2xl p-4 flex items-center justify-between border border-slate-100 dark:border-slate-700/60">
                   <div>
-                    <p className="font-black text-slate-800 dark:text-white text-sm">{item.label}</p>
+                    <p className="font-black text-slate-800 text-slate-900 dark:text-white text-sm">{item.label}</p>
                     <p className="text-xs text-slate-400 font-semibold mt-0.5">{item.desc}</p>
                   </div>
                   <button onClick={() => item.set(!item.value)} className={`relative w-12 h-6 rounded-full transition-all duration-300 ${item.value ? '' : 'bg-slate-200 dark:bg-slate-700'}`}
@@ -1390,11 +1447,11 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-1">
               <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><Lock className="w-4 h-4 text-white" /></div>
-              <div><h3 className="font-black text-slate-900 dark:text-white text-base">Privacy</h3><p className="text-xs text-slate-400 font-semibold">Control your data</p></div>
+              <div><h3 className="font-black text-slate-900 text-slate-900 dark:text-white text-base">Privacy</h3><p className="text-xs text-slate-400 font-semibold">Control your data</p></div>
             </div>
             <div className="card-pro bg-white dark:bg-slate-800/70 rounded-2xl p-4 flex items-center justify-between border border-slate-100 dark:border-slate-700/60">
               <div>
-                <p className="font-black text-slate-800 dark:text-white text-sm">Share Analytics Data</p>
+                <p className="font-black text-slate-800 text-slate-900 dark:text-white text-sm">Share Analytics Data</p>
                 <p className="text-xs text-slate-400 font-semibold mt-0.5">Help improve Vyaparika with anonymous usage data</p>
               </div>
               <button onClick={() => setPrivacyShare(!privacyShare)} className={`relative w-12 h-6 rounded-full transition-all duration-300 ${privacyShare ? '' : 'bg-slate-200 dark:bg-slate-700'}`}
@@ -1413,7 +1470,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><KeyRound className="w-5 h-5 text-white" /></div>
-                <div><p className="font-black text-slate-900 dark:text-white">Change Password</p><p className="text-xs text-slate-400 font-semibold">Update your account password</p></div>
+                <div><p className="font-black text-slate-900 text-slate-900 dark:text-white">Change Password</p><p className="text-xs text-slate-400 font-semibold">Update your account password</p></div>
               </div>
               <button onClick={() => { setShowChangePwd(!showChangePwd); setPwdSuccess(false); setOldPwd(''); setNewPwd(''); setConfirmPwd(''); }}
                 className="text-indigo-600 font-black text-sm hover:text-indigo-800 transition-colors">
@@ -1437,7 +1494,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
                       <div key={f.label}>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">{f.label}</label>
                         <input type="password" value={f.val} onChange={e => f.set(e.target.value)}
-                          className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-3.5 px-5 font-semibold dark:text-white" />
+                          className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-3.5 px-5 font-semibold text-slate-900 dark:text-white" />
                       </div>
                     ))}
                     {newPwd && confirmPwd && newPwd !== confirmPwd && (
@@ -1457,7 +1514,7 @@ const AdminModule: React.FC<{ state: AppState, setState: React.Dispatch<React.Se
           <div className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl p-6 border border-slate-100 dark:border-slate-700/60">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(217,119,6,0.15))' }}><LogOut className="w-5 h-5 text-amber-600" /></div>
-              <div><p className="font-black text-slate-900 dark:text-white">Sign Out</p><p className="text-xs text-slate-400 font-semibold">Log out from your account</p></div>
+              <div><p className="font-black text-slate-900 text-slate-900 dark:text-white">Sign Out</p><p className="text-xs text-slate-400 font-semibold">Log out from your account</p></div>
             </div>
             <Button variant="danger" fullWidth className="h-12" onClick={handleLogout}>
               <LogOut className="w-4 h-4" /> Sign Out from Vyaparika
@@ -1557,7 +1614,7 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
               style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}>
               <User className="w-10 h-10 text-white" />
             </div>
-            <h2 className="text-2xl font-black text-slate-900 dark:text-white font-display">Complete Your Profile</h2>
+            <h2 className="text-2xl font-black text-slate-900 text-slate-900 dark:text-white font-display">Complete Your Profile</h2>
             <p className="text-slate-500 text-sm mt-1.5 font-semibold">Please fill in your details to continue</p>
             <div className="mt-3 px-4 py-2 rounded-2xl inline-block" style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(217,119,6,0.08))', border: '1px solid rgba(245,158,11,0.3)' }}>
               <p className="text-[11px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -1574,7 +1631,7 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
               </label>
               <input type="text" value={name} onChange={e => setName(e.target.value)}
                 placeholder="e.g. Rahul Sharma"
-                className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 rounded-2xl py-4 px-5 font-semibold dark:text-white text-base"
+                className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 rounded-2xl py-4 px-5 font-semibold text-slate-900 dark:text-white text-base"
                 style={{ borderColor: name.trim() ? '#4f46e5' : '#e2e8f0' }} />
             </div>
             <div>
@@ -1588,7 +1645,7 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
                 </div>
                 <input type="tel" maxLength={10} value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g,''))}
                   placeholder="00000 00000"
-                  className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 rounded-2xl py-4 pl-24 pr-5 font-black text-base dark:text-white tracking-widest"
+                  className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 rounded-2xl py-4 pl-24 pr-5 font-black text-base text-slate-900 dark:text-white tracking-widest"
                   style={{ borderColor: phone.replace(/\D/g,'').length === 10 ? '#4f46e5' : '#e2e8f0' }} />
               </div>
               {phone.length > 0 && phone.replace(/\D/g,'').length < 10 && (
@@ -1601,7 +1658,7 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
               </label>
               <input type="text" value={city} onChange={e => setCity(e.target.value)}
                 placeholder="e.g. Mumbai"
-                className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 rounded-2xl py-4 px-5 font-semibold dark:text-white text-base"
+                className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 rounded-2xl py-4 px-5 font-semibold text-slate-900 dark:text-white text-base"
                 style={{ borderColor: city.trim() ? '#4f46e5' : '#e2e8f0' }} />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1609,13 +1666,13 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">State</label>
                 <input type="text" value={stateVal} onChange={e => setStateVal(e.target.value)}
                   placeholder="Maharashtra"
-                  className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-4 px-4 font-semibold dark:text-white text-base" />
+                  className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-4 px-4 font-semibold text-slate-900 dark:text-white text-base" />
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Address</label>
                 <input type="text" value={address} onChange={e => setAddress(e.target.value)}
                   placeholder="Street / Area"
-                  className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-4 px-4 font-semibold dark:text-white text-base" />
+                  className="input-pro w-full bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl py-4 px-4 font-semibold text-slate-900 dark:text-white text-base" />
               </div>
             </div>
           </div>
@@ -1639,6 +1696,12 @@ const ProfileCompleteScreen: React.FC<{ state: AppState, setState: React.Dispatc
 };
 
 // --- Main App Logic ---
+
+// ==========================================
+// CORE APPLICATION: MAIN REACT COMPONENT 
+// Manages global state (auth, user profiles, inventory sync, multi-language, theme)
+// Contains Layout, Dashboard, Settings, etc., wrapped in Error Boundary
+// ==========================================
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => {
@@ -1687,18 +1750,27 @@ export default function App() {
 
   const handleAppLogout = async () => {
     loggedOutRef.current = true;
-    // Save completed profile to registry so returning user skips onboarding
-    if (state.profile.email && state.onboarded) {
-      saveUserProfileToRegistry(state.profile.email, state.role as UserRole, state.language, state.profile);
+    // Save completed profile to registry so returning user skips onboarding.
+    // Any storage-related error should not block logout.
+    try {
+      if (state.profile.email && state.onboarded) {
+        saveUserProfileToRegistry(state.profile.email, state.role as UserRole, state.language, state.profile);
+      }
+    } catch (err) {
+      console.warn('[Vyaparika] Failed to save profile before logout:', err);
     }
-    saveLoginRecord({
-      businessName: state.profile.shopName || 'Business Account',
-      roleName: (state.role as string) || 'Business',
-      roleId: state.role as UserRole,
-      loginMethod: 'email',
-      timestamp: new Date().toISOString(),
-      email: state.profile.email || undefined,
-    });
+    try {
+      saveLoginRecord({
+        businessName: state.profile.shopName || 'Business Account',
+        roleName: (state.role as string) || 'Business',
+        roleId: state.role as UserRole,
+        loginMethod: 'email',
+        timestamp: new Date().toISOString(),
+        email: state.profile.email || undefined,
+      });
+    } catch (err) {
+      console.warn('[Vyaparika] Failed to save login record on logout:', err);
+    }
     // Fully reset state so next user gets a clean slate
     const freshProfile: UserProfile = {
       id: 'MER-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
@@ -1736,7 +1808,11 @@ export default function App() {
         nearestStores: [],
       };
       // Persist clean state to localStorage right away
-      localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+      try {
+        localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+      } catch (err) {
+        console.warn('[Vyaparika] Failed to persist logged-out state:', err);
+      }
       return newState;
     });
     // Clean up Supabase session in the background (non-blocking)
@@ -1748,9 +1824,16 @@ export default function App() {
     let unsubscribe: (() => void) | undefined;
     try {
       unsubscribe = onAuthStateChange(async (event, session) => {
+        // Clean URL fragment safely after auth change events
+        if (window.location.hash && window.location.hash.includes('expires_at=')) {
+          setTimeout(() => {
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+          }, 100);
+        }
+
         // Don't re-login if user explicitly logged out
         if (loggedOutRef.current) return;
-        if (event === 'SIGNED_IN' && session?.user) {
+        if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session?.user) {
           const user = session.user;
           const meta = user.user_metadata || {};
           // Persist user profile to Supabase (non-blocking, ignore errors)
@@ -1875,7 +1958,8 @@ export default function App() {
   const [invCategoryFilter, setInvCategoryFilter] = useState<string>('ALL');
   const [invSelectedItem, setInvSelectedItem] = useState<SKU | null>(null);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<SKU | null>(null);
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<{ text: string; tone: 'success' | 'error' | 'info' } | null>(null);
+  const [showQuickTips, setShowQuickTips] = useState(() => localStorage.getItem('vyaparika_quick_tips_seen') !== '1');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Real-time notifications ──
@@ -1960,10 +2044,15 @@ export default function App() {
     setShowNotifPanel(false);
   }, []);
 
-  const showToast = useCallback((msg: string) => {
-    setToastMsg(msg);
+  const showToast = useCallback((msg: string, tone: 'success' | 'error' | 'info' = 'info') => {
+    setToastMsg({ text: msg, tone });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMsg(null), 3200);
+  }, []);
+
+  const dismissQuickTips = useCallback(() => {
+    setShowQuickTips(false);
+    localStorage.setItem('vyaparika_quick_tips_seen', '1');
   }, []);
 
   const handleDeleteSKU = useCallback((skuId: string) => {
@@ -2034,6 +2123,8 @@ export default function App() {
   const [lastLogins, setLastLogins] = useState<LoginRecord[]>(() => getLastLogins());
 
   const handleAuthSuccess = useCallback((method: string, data?: any) => {
+    // User is explicitly logging in again, allow auth listeners/session restore paths.
+    loggedOutRef.current = false;
     const preRole = data?.role as UserRole | undefined;
     const preBusinessName = data?.businessName as string | undefined;
     const isReturning = data?.isReturningUser === true || method === 'quick';
@@ -2220,7 +2311,7 @@ export default function App() {
                 style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}>
                 <Sparkles className="text-white w-10 h-10" />
               </div>
-              <h2 className="text-4xl font-black text-slate-900 dark:text-white leading-tight mb-3 font-display" style={{ letterSpacing: '-0.03em' }}>You're In!</h2>
+              <h2 className="text-4xl font-black text-slate-900 text-slate-900 dark:text-white leading-tight mb-3 font-display" style={{ letterSpacing: '-0.03em' }}>You're In!</h2>
               <p className="text-slate-500 dark:text-slate-400 font-medium mb-8">Let's configure your business in 30 seconds.</p>
               <Button fullWidth className="h-14 text-base btn-glow" onClick={() => setState(s => ({ ...s, onboardingStep: 2 }))}>Setup My Business <ChevronRight className="w-4 h-4" /></Button>
             </div>
@@ -2228,7 +2319,7 @@ export default function App() {
           {state.onboardingStep === 2 && (
             <div className="animate-in fade-in slide-in-from-right-4 space-y-5">
               <div>
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white font-display mb-1">{t.onboardingStep3}</h2>
+                <h2 className="text-2xl font-black text-slate-900 text-slate-900 dark:text-white font-display mb-1">{t.onboardingStep3}</h2>
                 <p className="text-slate-500 text-sm">This will be your business identity across Vyaparika</p>
               </div>
               <div>
@@ -2267,7 +2358,7 @@ export default function App() {
                 </div>
                 <div className="absolute inset-0 rounded-3xl border-2 border-emerald-400/40 animate-ping" />
               </div>
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-3 font-display">Cash Safe Promise</h2>
+              <h2 className="text-2xl font-black text-slate-900 text-slate-900 dark:text-white mb-3 font-display">Cash Safe Promise</h2>
               <p className="text-slate-500 dark:text-slate-400 font-medium mb-2">Your financial data stays local &amp; encrypted.</p>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">We never share your revenue data.</p>
               <Button fullWidth className="h-14 text-base btn-glow" onClick={() => setState(s => {
@@ -2293,66 +2384,104 @@ export default function App() {
     return <ProfileCompleteScreen state={state} setState={setState} />;
   }
 
+  const isMapView = activeTab === 'storemap' && state.role === UserRole.MANUFACTURER;
+
   return (
     <div className="min-h-screen bg-mesh flex overflow-hidden transition-colors duration-500">
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <header className="bg-white dark:bg-slate-900 px-4 sm:px-6 py-3 flex justify-between items-center border-b-2 border-slate-100 dark:border-slate-800 shrink-0 z-30"
-          style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.06)' }}>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg"
-                style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}>
-                <Package className="text-white w-6 h-6" />
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-white dark:border-slate-900" />
+        {/* ─────────────────────────────────────────
+           REDESIGNED TOP NAVBAR — Gradient, Logo, Tagline
+           ───────────────────────────────────────── */}
+        {!isMapView && (
+        <header className="navbar-header shrink-0 z-30">
+          {/* ── Logo & Identity Section ── */}
+          <div className="navbar-logo-section">
+            <div className="navbar-logo-avatar">
+              {state.profile.avatar_url ? (
+                <img
+                  src={state.profile.avatar_url}
+                  alt="Business logo"
+                  className="w-full h-full object-cover rounded-2xl"
+                />
+              ) : (
+                <Package className="navbar-logo-icon" />
+              )}
             </div>
-            <div>
-              <h1 className="text-lg font-black text-slate-800 dark:text-white leading-none font-display capitalize">{state.profile.shopName || 'My Business'}</h1>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full text-indigo-600 dark:text-indigo-400" style={{ background: 'rgba(99,102,241,0.1)' }}>{state.role}</span>
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{activeTab}</span>
+            <div className="navbar-identity">
+              <h1 className="navbar-business-name">
+                {state.profile.shopName || 'My Business'}
+              </h1>
+              <div className="navbar-business-badge">
+                {state.role?.toUpperCase() || 'RETAILER'} • DASHBOARD
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowNotifPanel(!showNotifPanel)} className="w-11 h-11 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center border-2 border-slate-100 dark:border-slate-700 hover:border-indigo-300 transition-colors relative active:scale-95">
-              <Bell className="w-5 h-5 text-slate-500" />
+
+          {/* ── Center Tagline (Desktop Only) ── */}
+          <div className="navbar-center">
+            <div className="navbar-tagline-divider"></div>
+            <span className="navbar-tagline">
+              Powering Your Business Network
+            </span>
+            <div className="navbar-tagline-divider"></div>
+          </div>
+
+          {/* ── Action Buttons Section ── */}
+          <div className="navbar-actions">
+            <button
+              onClick={() => setShowNotifPanel(!showNotifPanel)}
+              className={`navbar-action-btn ${showNotifPanel ? 'active' : 'inactive'}`}
+              aria-label="View alerts and notifications"
+              title="Alerts"
+            >
+              <Bell className="navbar-action-icon" />
+              <span className="navbar-action-label">Alerts</span>
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-[9px] font-black text-white" style={{ background: 'linear-gradient(135deg, #f43f5e, #e11d48)', boxShadow: '0 2px 8px rgba(244,63,94,0.5)' }}>
+                <span className="navbar-notification-badge">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
-              {unreadCount === 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-slate-300 dark:bg-slate-600 rounded-full" />}
             </button>
-            <button onClick={() => setActiveTab('payments')}
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center border-2 transition-all overflow-hidden shadow-sm active:scale-95 ${
-                activeTab === 'payments'
-                  ? 'border-indigo-400 dark:border-indigo-500'
-                  : 'border-slate-100 dark:border-slate-700 hover:border-indigo-300'
-              }`}
-              style={{ background: activeTab === 'payments' ? 'linear-gradient(135deg, #4f46e5, #7c3aed)' : 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.12))' }}
+
+            {state.role === UserRole.MANUFACTURER && (
+              <button
+                onClick={() => setActiveTab('storemap')}
+                className={`navbar-action-btn ${activeTab === 'storemap' ? 'active' : 'inactive'}`}
+                aria-label="View store map"
+                title="Store Map"
+              >
+                <Globe className="navbar-action-icon" />
+                <span className="navbar-action-label">Map</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setActiveTab('payments')}
+              className={`navbar-action-btn ${activeTab === 'payments' ? 'active' : 'inactive'}`}
+              aria-label="Go to payments"
               title="Payments"
             >
-              <Smartphone className={`w-5 h-5 ${activeTab === 'payments' ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`} />
+              <Smartphone className="navbar-action-icon" />
+              <span className="navbar-action-label">Payments</span>
             </button>
-            <button onClick={() => setActiveTab('admin')}
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center border-2 transition-all overflow-hidden shadow-sm active:scale-95 ${
-                activeTab === 'admin'
-                  ? 'border-indigo-400 dark:border-indigo-500'
-                  : 'border-slate-100 dark:border-slate-700 hover:border-indigo-300'
-              }`}
-              style={{ background: activeTab === 'admin' ? 'linear-gradient(135deg, #4f46e5, #7c3aed)' : 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.12))' }}
-              title="Admin"
+
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`navbar-action-btn ${activeTab === 'admin' ? 'active' : 'inactive'}`}
+              aria-label="Go to profile"
+              title="Profile"
             >
-              <User className={`w-5 h-5 ${activeTab === 'admin' ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`} />
+              <User className="navbar-action-icon" />
+              <span className="navbar-action-label">Profile</span>
             </button>
           </div>
         </header>
+        )}
 
         {/* ── Real-time Notification Panel ── */}
-        {showNotifPanel && (
-          <div className="absolute top-16 right-4 z-50 w-[360px] max-h-[480px] rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+        {!isMapView && showNotifPanel && (
+          <div className="absolute top-14 sm:top-20 right-3 sm:right-6 z-50 w-[calc(100vw-24px)] sm:w-[360px] max-h-[420px] sm:max-h-[480px] rounded-2xl sm:rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
             style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.18)' }}>
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -2360,7 +2489,7 @@ export default function App() {
                   <Bell className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-black text-sm text-slate-800 dark:text-white">Notifications</h3>
+                  <h3 className="font-black text-sm text-slate-800 text-slate-900 dark:text-white">Notifications</h3>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{unreadCount} unread</p>
                 </div>
               </div>
@@ -2401,7 +2530,7 @@ export default function App() {
                         <span className="text-lg mt-0.5">{icon}</span>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="font-black text-xs text-slate-800 dark:text-white">{notif.title}</p>
+                            <p className="font-black text-xs text-slate-800 text-slate-900 dark:text-white">{notif.title}</p>
                             {!notif.read && <span className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />}
                           </div>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5 line-clamp-2">{notif.message}</p>
@@ -2418,7 +2547,18 @@ export default function App() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-transparent">
+        <div className={`flex-1 ${isMapView ? 'overflow-hidden p-0' : 'overflow-y-auto p-3 sm:p-6'} bg-transparent`}>
+          {showQuickTips && (
+            <div className="max-w-7xl mx-auto mb-4 rounded-2xl border p-4" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-black">Quick Help</h2>
+                  <p className="text-sm mt-1">Start with Dashboard, then open Inventory to add products. Use Settings in Profile for advanced options.</p>
+                </div>
+                <button className="app-secondary-btn px-3" onClick={dismissQuickTips}>Got it</button>
+              </div>
+            </div>
+          )}
           {showAddPage ? (
             <AddInventoryModule 
               onClose={() => setShowAddPage(false)} 
@@ -2437,16 +2577,34 @@ export default function App() {
             <ErrorBoundary><AdminModule state={state} setState={setState} t={t} onDeleteAccount={() => setLastLogins(getLastLogins())} onLogout={handleAppLogout} /></ErrorBoundary>
           ) : activeTab === 'expenses' ? (
             state.role === UserRole.MANUFACTURER ? (
-              <ErrorBoundary><CampaignsPage /></ErrorBoundary>
+              <ErrorBoundary><CampaignsPage localInventory={state.inventory} /></ErrorBoundary>
             ) : (
               <ErrorBoundary><ExpensesModule state={state} setState={setState} t={t} /></ErrorBoundary>
             )
           ) : activeTab === 'network' ? (
-            <ErrorBoundary><NetworkModule state={state} setState={setState} t={t} /></ErrorBoundary>
+            <ErrorBoundary><NetworkPage state={state} setState={setState} t={t} /></ErrorBoundary>
           ) : activeTab === 'payments' ? (
             <ErrorBoundary><PaymentsModule state={state} setState={setState} t={t} /></ErrorBoundary>
+          ) : activeTab === 'storemap' && state.role === UserRole.MANUFACTURER ? (
+            <div className="relative w-full h-full" style={{ height: '100vh' }}>
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="absolute top-4 right-4 z-20 px-4 py-2 rounded-xl text-sm font-black text-white shadow-lg border border-white/20"
+                style={{ background: 'rgba(15, 23, 42, 0.78)', backdropFilter: 'blur(8px)' }}
+                aria-label="Go to home screen"
+                title="Back to Home"
+              >
+                Back to Home
+              </button>
+              <iframe
+                src="/globe.html"
+                title="Store Network Map"
+                className="w-full h-full border-0"
+                style={{ minHeight: '100vh' }}
+              />
+            </div>
           ) : (
-            <div className="max-w-7xl mx-auto space-y-8 pb-24 sm:pb-8">
+            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 pb-20 sm:pb-8">
               {activeTab === 'dashboard' && (
                 <>
                   {state.role === UserRole.RETAILER && <RetailerDashboard state={state} t={t} />}
@@ -2456,7 +2614,7 @@ export default function App() {
               )}
               {activeTab === 'inventory' && (state.role === UserRole.MANUFACTURER ? (
                 <ErrorBoundary>
-                  <SkuVelocityPage onAddSku={() => setActiveTab('admin')} />
+                  <SkuVelocityPage onAddSku={() => setShowAddPage(true)} inventory={state.inventory} />
                 </ErrorBoundary>
               ) : (() => {
                 // Single-pass computation for all inventory stats
@@ -2528,8 +2686,19 @@ export default function App() {
                             placeholder="Search products or categories..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
-                            className="w-full h-12 pl-11 pr-4 text-sm font-semibold bg-transparent dark:text-white outline-none placeholder:text-slate-400 border-r border-slate-100 dark:border-slate-700/50"
+                            className="w-full h-12 pl-11 pr-10 text-sm font-semibold bg-transparent text-slate-900 dark:text-white outline-none placeholder:text-slate-400 border-r border-slate-100 dark:border-slate-700/50"
                           />
+                          {searchTerm.trim() && (
+                            <button
+                              type="button"
+                              onClick={() => setSearchTerm('')}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-700"
+                              aria-label="Clear search"
+                              title="Clear search"
+                            >
+                              <X className="w-4 h-4 text-slate-500" />
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center shrink-0">
                           <select
@@ -2616,7 +2785,7 @@ export default function App() {
                               >
                                 {/* Product cell */}
                                 <div className="flex flex-col gap-0.5 pr-3 min-w-0">
-                                  <p className="text-sm font-black text-slate-800 dark:text-white truncate leading-tight">{item.name}</p>
+                                  <p className="text-sm font-black text-slate-800 text-slate-900 dark:text-white truncate leading-tight">{item.name}</p>
                                   <p className="text-[10px] font-semibold text-slate-400 leading-none">{item.category}</p>
                                   {item.expiryDate && <div className="mt-1"><ExpiryAlertBadge expiryDate={item.expiryDate} /></div>}
                                 </div>
@@ -2754,28 +2923,27 @@ export default function App() {
         </div>
 
         {/* Bottom Nav */}
-        <nav className="bg-white dark:bg-slate-900 border-t-2 border-slate-100 dark:border-slate-800 px-2 pt-2 pb-3 flex justify-around items-end shrink-0 z-30"
-          style={{ boxShadow: '0 -4px 24px rgba(0,0,0,0.07)' }}>
+        {!isMapView && (
+        <nav className="app-navbar px-1 sm:px-2 pt-1.5 sm:pt-2 pb-1 flex justify-around items-end shrink-0 z-30">
           {navItems.map(item => {
             const isActive = activeTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className="flex flex-col items-center gap-1.5 min-w-[3.5rem] transition-all duration-200 active:scale-95"
+                className="app-nav-button transition-all duration-150"
+                aria-label={item.label}
+                title={item.label}
               >
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-200 ${
-                  isActive ? 'shadow-lg' : 'bg-transparent'
-                }`} style={isActive ? { background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', boxShadow: '0 6px 18px rgba(99,102,241,0.4)' } : {}}>
-                  <item.icon className={`transition-all duration-200 ${isActive ? 'w-6 h-6 text-white' : 'w-5 h-5 text-slate-400 dark:text-slate-500'}`} />
+                <div className={`app-nav-pill ${isActive ? 'active' : ''}`}>
+                  <item.icon className={`app-nav-icon ${isActive ? 'active w-4 h-4 sm:w-5 sm:h-5' : 'inactive w-4 h-4 sm:w-5 sm:h-5'}`} />
                 </div>
-                <span className={`text-[10px] font-black uppercase tracking-tight leading-none transition-all ${
-                  isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
-                }`}>{item.label}</span>
+                <span className={`app-nav-label ${isActive ? 'active' : 'inactive'}`}>{item.label}</span>
               </button>
             );
           })}
         </nav>
+        )}
         <InventoryDetailPanel
           item={invSelectedItem}
           movementLogs={state.movementLogs}
@@ -2883,7 +3051,7 @@ const DeleteConfirmModal: React.FC<{
               <Trash2 className="w-5 h-5" style={{ color: '#e11d48' }} />
             </div>
             <div className="flex-1">
-              <h3 className="text-base font-black text-slate-800 dark:text-white leading-tight mb-1">
+              <h3 className="text-base font-black text-slate-800 text-slate-900 dark:text-white leading-tight mb-1">
                 Delete Inventory Item
               </h3>
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -2901,7 +3069,7 @@ const DeleteConfirmModal: React.FC<{
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Product Name</p>
-                  <p className="text-sm font-black text-slate-800 dark:text-white truncate leading-tight">{item.name}</p>
+                  <p className="text-sm font-black text-slate-800 text-slate-900 dark:text-white truncate leading-tight">{item.name}</p>
                   <p className="text-[10px] font-semibold text-slate-400 mt-0.5">{item.category}</p>
                 </div>
                 <div className="text-right shrink-0">
@@ -2979,10 +3147,16 @@ const DeleteConfirmModal: React.FC<{
 // --- Toast Notification ---
 
 const ToastNotification: React.FC<{
-  message: string | null;
+  message: { text: string; tone: 'success' | 'error' | 'info' } | null;
   onDismiss: () => void;
 }> = ({ message, onDismiss }) => {
   const visible = !!message;
+  const tone = message?.tone || 'info';
+  const toneStyles = {
+    success: { iconBg: 'rgba(22,163,74,0.16)', iconColor: 'var(--color-success)', border: 'rgba(22,163,74,0.35)' },
+    error: { iconBg: 'rgba(220,38,38,0.16)', iconColor: 'var(--color-danger)', border: 'rgba(220,38,38,0.35)' },
+    info: { iconBg: 'rgba(37,99,235,0.16)', iconColor: 'var(--color-info)', border: 'rgba(37,99,235,0.35)' },
+  }[tone];
   return (
     <div
       style={{
@@ -2999,20 +3173,27 @@ const ToastNotification: React.FC<{
         display: 'flex', alignItems: 'center', gap: '10px',
         padding: '9px 14px 9px 10px',
         borderRadius: '14px',
-        background: '#1e293b',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.06)',
+        background: 'var(--color-toast-bg)',
+        border: `1px solid ${toneStyles.border}`,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
         minWidth: '256px', maxWidth: '88vw',
       }}
     >
       <div style={{
         width: '26px', height: '26px', borderRadius: '8px', flexShrink: 0,
-        background: 'rgba(16,185,129,0.18)',
+        background: toneStyles.iconBg,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <CheckCircle style={{ width: '14px', height: '14px', color: '#34d399' }} />
+        {tone === 'error' ? (
+          <AlertTriangle style={{ width: '14px', height: '14px', color: toneStyles.iconColor }} />
+        ) : tone === 'info' ? (
+          <Info style={{ width: '14px', height: '14px', color: toneStyles.iconColor }} />
+        ) : (
+          <CheckCircle style={{ width: '14px', height: '14px', color: toneStyles.iconColor }} />
+        )}
       </div>
-      <span style={{ fontSize: '13px', fontWeight: 700, color: '#f1f5f9', flex: 1, lineHeight: 1.4 }}>
-        {message}
+      <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-on-accent)', flex: 1, lineHeight: 1.4 }}>
+        {message?.text}
       </span>
       <button
         onClick={onDismiss}
@@ -3110,7 +3291,7 @@ const InventoryDetailPanel: React.FC<{
               )}
               {item && <Badge status={item.status} />}
             </div>
-            <h2 className="text-xl font-black text-slate-800 dark:text-white leading-tight truncate">
+            <h2 className="text-xl font-black text-slate-800 text-slate-900 dark:text-white leading-tight truncate">
               {item?.name || '\u2014'}
             </h2>
             {item?.expiryDate && (
@@ -3166,7 +3347,7 @@ const InventoryDetailPanel: React.FC<{
           <div className="grid grid-cols-2 gap-2.5">
             <div className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50">
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Unit Price</p>
-              <p className="text-base font-black text-slate-800 dark:text-white">\u20b9{(item?.price || 0).toLocaleString('en-IN')}</p>
+              <p className="text-base font-black text-slate-800 text-slate-900 dark:text-white">\u20b9{(item?.price || 0).toLocaleString('en-IN')}</p>
               <p className="text-[9px] font-bold text-slate-400 mt-1">per {item?.unit || '\u2014'}</p>
             </div>
             <div className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50">
@@ -4163,7 +4344,7 @@ const AddInventoryModule: React.FC<{
       <div className="bg-white dark:bg-slate-800 w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300" style={{ boxShadow: '0 30px 80px rgba(79,70,229,0.2)' }}>
         <div className="p-7 border-b border-slate-100 dark:border-slate-700/60 flex justify-between items-center" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.07), rgba(168,85,247,0.04))' }}>
            <div>
-             <h2 className="text-xl font-black text-slate-900 dark:text-white">Add New Item</h2>
+             <h2 className="text-xl font-black text-slate-900 text-slate-900 dark:text-white">Add New Item</h2>
              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Inventory Management</p>
            </div>
            <button onClick={onClose} className="p-2.5 bg-slate-100 dark:bg-slate-700 rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"><X className="w-5 h-5" /></button>
@@ -4183,7 +4364,7 @@ const AddInventoryModule: React.FC<{
                 onChange={(e) => setName(e.target.value)}
                 onBlur={handlePredict}
                 placeholder="Item Name"
-                className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white"
+                className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold text-slate-900 text-slate-900 dark:text-white"
               />
            </div>
 
@@ -4207,14 +4388,14 @@ const AddInventoryModule: React.FC<{
            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Category</label>
-                <select value={category} onChange={(e) => setCategory(e.target.value)} className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold appearance-none dark:text-white">
+                <select value={category} onChange={(e) => setCategory(e.target.value)} className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold appearance-none text-slate-900 text-slate-900 dark:text-white">
                   <option value="">Select</option>
                   {categories.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Unit</label>
-                <select value={unit} onChange={(e) => setUnit(e.target.value)} className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold appearance-none dark:text-white">
+                <select value={unit} onChange={(e) => setUnit(e.target.value)} className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold appearance-none text-slate-900 text-slate-900 dark:text-white">
                   {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
@@ -4232,7 +4413,7 @@ const AddInventoryModule: React.FC<{
                       const raw = e.target.value;
                       if (raw === '' || (Number(raw) >= 0 && !raw.includes('-'))) setOpeningStock(raw);
                     }} 
-                    className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white" 
+                    className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold text-slate-900 text-slate-900 dark:text-white" 
                  />
               </div>
               <div>
@@ -4246,7 +4427,7 @@ const AddInventoryModule: React.FC<{
                       const raw = e.target.value;
                       if (raw === '' || (Number(raw) >= 0 && !raw.includes('-'))) setPrice(raw);
                     }} 
-                    className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white" 
+                    className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold text-slate-900 text-slate-900 dark:text-white" 
                  />
               </div>
            </div>
@@ -4263,7 +4444,7 @@ const AddInventoryModule: React.FC<{
                     const raw = e.target.value;
                     if (raw === '' || (Number(raw) >= 0 && !raw.includes('-'))) setMinThreshold(raw);
                   }}
-                  className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white"
+                  className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold text-slate-900 text-slate-900 dark:text-white"
                 />
               </div>
               <div>
@@ -4277,7 +4458,7 @@ const AddInventoryModule: React.FC<{
                     value={expiryDate}
                     onChange={(e) => setExpiryDate(e.target.value)}
                     min={new Date().toISOString().split('T')[0]}
-                    className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold dark:text-white appearance-none [color-scheme:light] dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                    className="input-pro w-full bg-slate-50 dark:bg-slate-700/60 border-2 border-slate-200 dark:border-slate-600/60 rounded-2xl p-4 font-bold text-slate-900 text-slate-900 dark:text-white appearance-none [color-scheme:light] dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                     style={{ colorScheme: 'auto' }}
                   />
                   {expiryDate && (
@@ -4333,7 +4514,7 @@ const StockUpdateModule: React.FC<{
       <div className="bg-white dark:bg-slate-800 w-full max-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
         <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
            <div>
-             <h2 className="text-2xl font-black text-slate-900 dark:text-white">{t.updateStock}</h2>
+             <h2 className="text-2xl font-black text-slate-900 text-slate-900 dark:text-white">{t.updateStock}</h2>
              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{item.name}</p>
            </div>
            <button onClick={onClose} className="p-2 bg-slate-50 dark:bg-slate-700 rounded-full"><X /></button>
@@ -4451,7 +4632,7 @@ const RetailerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) 
       <div className="flex items-center justify-between">
         <div>
           <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">{greeting}</p>
-          <h1 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">
+          <h1 className="text-2xl font-black text-slate-800 text-slate-900 dark:text-white tracking-tight">
             {state.profile.name || state.profile.shopName || 'Dashboard'}
           </h1>
           {state.profile.shopName && state.profile.name && (
@@ -4488,7 +4669,7 @@ const RetailerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) 
         {/* Recent Expenses */}
         <Card className="md:col-span-2 p-6 space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-base font-black text-slate-800 dark:text-white font-display">Recent Expenses</h3>
+            <h3 className="text-base font-black text-slate-800 text-slate-900 dark:text-white font-display">Recent Expenses</h3>
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{state.expenses.length} total</span>
           </div>
           <div className="space-y-1">
@@ -4506,7 +4687,7 @@ const RetailerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) 
                     <CreditCard className="w-4 h-4" />
                   </div>
                   <div>
-                    <p className="font-bold text-sm text-slate-800 dark:text-white">{exp.description || exp.category}</p>
+                    <p className="font-bold text-sm text-slate-800 text-slate-900 dark:text-white">{exp.description || exp.category}</p>
                     <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
                       {exp.category} &bull; {new Date(exp.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                     </p>
@@ -4549,7 +4730,7 @@ const RetailerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) 
       {/* ── Recent Stock Movements ── */}
       <Card className="p-6 space-y-4">
         <div className="flex justify-between items-center">
-          <h3 className="text-base font-black text-slate-800 dark:text-white font-display">Recent Movements</h3>
+          <h3 className="text-base font-black text-slate-800 text-slate-900 dark:text-white font-display">Recent Movements</h3>
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{state.movementLogs.length} total</span>
         </div>
         <div className="space-y-1">
@@ -4572,7 +4753,7 @@ const RetailerDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) 
                     {log.type === 'IN' ? <ArrowUpRight className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
                   </div>
                   <div>
-                    <p className="font-bold text-sm text-slate-800 dark:text-white">{item?.name || 'Unknown Item'}</p>
+                    <p className="font-bold text-sm text-slate-800 text-slate-900 dark:text-white">{item?.name || 'Unknown Item'}</p>
                     <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{log.reason} &bull; {new Date(log.timestamp).toLocaleTimeString()}</p>
                   </div>
                 </div>
@@ -4896,7 +5077,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
       <div className="mb-8">
         {/* Title row with month nav */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">Summary</h2>
+          <h2 className="text-2xl font-black text-slate-900 text-slate-900 dark:text-white leading-tight">Summary</h2>
           <div className="flex items-center gap-1 bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/50 px-1 py-1">
             <button onClick={() => navigateMonth(-1)}
               className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-all active:scale-95">
@@ -4914,7 +5095,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
         <div className="mb-5">
           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Net Total</p>
           <div className="flex items-baseline gap-3">
-            <span className="text-4xl font-black text-slate-900 dark:text-white" style={{ fontFamily: 'Space Grotesk, Inter, sans-serif' }}>
+            <span className="text-4xl font-black text-slate-900 text-slate-900 dark:text-white" style={{ fontFamily: 'Space Grotesk, Inter, sans-serif' }}>
               ₹{totalMonth.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
             </span>
             {prevMonthTotal > 0 && (
@@ -4963,7 +5144,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                   <span className="text-xs font-bold" style={{ color: item.config.color }}>{item.category}</span>
                   <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
                 </div>
-                <p className="text-lg font-black text-slate-800 dark:text-white leading-none" style={{ fontFamily: 'Space Grotesk, Inter, sans-serif' }}>
+                <p className="text-lg font-black text-slate-800 text-slate-900 dark:text-white leading-none" style={{ fontFamily: 'Space Grotesk, Inter, sans-serif' }}>
                   ₹{item.amount.toLocaleString('en-IN')}
                 </p>
                 <div className="flex items-center gap-1 mt-2">
@@ -5006,7 +5187,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
       <div>
         {/* Transactions header */}
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-xl font-black text-slate-900 dark:text-white">Transactions</h3>
+          <h3 className="text-xl font-black text-slate-900 text-slate-900 dark:text-white">Transactions</h3>
         </div>
         <p className="text-[12px] text-slate-400 font-semibold mb-5">
           You had {monthExpenses.length} expense{monthExpenses.length !== 1 ? 's' : ''} this month
@@ -5052,7 +5233,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                       value={catSearch}
                       onChange={e => setCatSearch(e.target.value)}
                       placeholder="Search..."
-                      className="w-full bg-slate-50 dark:bg-slate-700/40 rounded-xl py-2.5 pl-9 pr-3 text-[12px] font-semibold text-slate-700 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-600/40 focus:outline-none focus:border-indigo-400 transition-colors"
+                      className="w-full bg-slate-50 dark:bg-slate-700/40 rounded-xl py-2.5 pl-9 pr-3 text-[12px] font-semibold text-slate-700 text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-600/40 focus:outline-none focus:border-indigo-400 transition-colors"
                     />
                   </div>
                 </div>
@@ -5132,7 +5313,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
             value={searchText}
             onChange={e => setSearchText(e.target.value)}
             placeholder="Search transactions..."
-            className="w-full bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 rounded-xl py-3 pl-11 pr-10 text-[13px] font-semibold text-slate-700 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
+            className="w-full bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 rounded-xl py-3 pl-11 pr-10 text-[13px] font-semibold text-slate-700 text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
           />
           {searchText && (
             <button onClick={() => setSearchText('')}
@@ -5157,7 +5338,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
           <div className="mb-6 bg-white dark:bg-slate-800/80 rounded-2xl border-2 border-slate-200 dark:border-slate-700/50 overflow-hidden"
             style={{ animation: 'fadeIn 200ms ease-out' }}>
             <div className="p-5 border-b border-slate-100 dark:border-slate-700/40 flex items-center justify-between">
-              <h3 className="font-black text-base text-slate-800 dark:text-white">New Expense</h3>
+              <h3 className="font-black text-base text-slate-800 text-slate-900 dark:text-white">New Expense</h3>
               <button onClick={() => { setShowAdd(false); setSaveSuccess(false); }}
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-colors">
                 <X className="w-5 h-5" />
@@ -5168,14 +5349,14 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Amount (₹)</label>
                   <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-base font-bold text-slate-800 dark:text-white placeholder:text-slate-300 focus:outline-none focus:border-indigo-400 transition-colors"
+                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-base font-bold text-slate-800 text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:border-indigo-400 transition-colors"
                     placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Category</label>
                   <div className="relative">
                     <select value={category} onChange={e => setCategory(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-sm font-bold text-slate-800 dark:text-white appearance-none focus:outline-none focus:border-indigo-400 transition-colors">
+                      className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-sm font-bold text-slate-800 text-slate-900 dark:text-white appearance-none focus:outline-none focus:border-indigo-400 transition-colors">
                       {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{getCatConfig(c).emoji} {c}</option>)}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -5186,13 +5367,13 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Description</label>
                   <input type="text" value={desc} onChange={e => setDesc(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 dark:text-white placeholder:text-slate-300 focus:outline-none focus:border-indigo-400 transition-colors"
+                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:border-indigo-400 transition-colors"
                     placeholder="e.g. Monthly Rent" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Date</label>
                   <input type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-606/40 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-400 transition-colors" />
+                    className="w-full bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-606/40 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400 transition-colors" />
                 </div>
               </div>
               {saveSuccess && (
@@ -5242,7 +5423,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
 
                       {/* Description + category tag */}
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-[13px] text-slate-800 dark:text-white truncate leading-tight">
+                        <p className="font-bold text-[13px] text-slate-800 text-slate-900 dark:text-white truncate leading-tight">
                           {e.description || e.category}
                         </p>
                         <div className="flex items-center gap-1.5 mt-1">
@@ -5306,7 +5487,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
             <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.08)' }}>
               <Search className="w-7 h-7 text-indigo-300" />
             </div>
-            <h3 className="font-black text-base text-slate-800 dark:text-white">No matching expenses</h3>
+            <h3 className="font-black text-base text-slate-800 text-slate-900 dark:text-white">No matching expenses</h3>
             <p className="text-sm text-slate-400 mt-1">Try adjusting your search or filters</p>
             <button onClick={() => { setSearchText(''); setFilterCategory('ALL'); }}
               className="mt-4 px-4 py-2 rounded-xl text-[11px] font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/15 border border-indigo-200 dark:border-indigo-700/30 hover:bg-indigo-100 transition-all active:scale-95">
@@ -5320,7 +5501,7 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
             <div className="w-20 h-20 rounded-3xl mx-auto mb-5 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FEF2F2, #FECACA)' }}>
               <CreditCard className="w-9 h-9 text-rose-300" />
             </div>
-            <h3 className="font-black text-lg text-slate-800 dark:text-white">No expenses this month</h3>
+            <h3 className="font-black text-lg text-slate-800 text-slate-900 dark:text-white">No expenses this month</h3>
             <p className="text-sm text-slate-400 mt-1.5 max-w-xs mx-auto">
               Tap "+ Add" to record your first expense for {monthDisplay}
             </p>
@@ -5357,722 +5538,6 @@ const ExpensesModule: React.FC<{ state: AppState, setState: React.Dispatch<React
       <style>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
-      `}</style>
-    </div>
-  );
-};
-
-const NetworkModule: React.FC<{ state: AppState, setState: React.Dispatch<React.SetStateAction<AppState>>, t: any }> = ({ state, setState, t }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [followLoading, setFollowLoading] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'connected' | 'sent' | 'pending'>('all');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'MANUFACTURER' | 'DISTRIBUTOR' | 'RETAILER'>('ALL');
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [connectionProfiles, setConnectionProfiles] = useState<Record<string, any>>({});
-  const [recommendations, setRecommendations] = useState<any[]>([]);
-  const [recsLoading, setRecsLoading] = useState(false);
-  const [showFilterDrawer, setShowFilterDrawer] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const [expandedCard, setExpandedCard] = useState<string | null>(null);
-  const [initialLoad, setInitialLoad] = useState(true);
-
-  const myId = state.profile.id;
-
-  // Toast helper
-  const showToastMsg = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2800);
-  }, []);
-
-  // Load connections from Supabase on mount + subscribe to real-time
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const rows = await connectionsServiceFetchConnections(myId);
-      if (!cancelled) { applyConnectionRows(rows); setInitialLoad(false); }
-    };
-    load();
-
-    const unsubscribe = connectionsServiceSubscribe(myId, (rows) => {
-      if (!cancelled) applyConnectionRows(rows);
-    });
-    return () => { cancelled = true; unsubscribe(); };
-  }, [myId]);
-
-  // Convert Supabase rows → local BusinessConnection state + fetch profiles
-  const applyConnectionRows = async (rows: any[]) => {
-    const otherIds = rows.map(r => r.sender_id === myId ? r.receiver_id : r.sender_id);
-    const profiles = otherIds.length ? await connectionsServiceFetchProfiles(otherIds) : [];
-    const profileMap: Record<string, any> = {};
-    profiles.forEach(p => { profileMap[p.id] = p; });
-    setConnectionProfiles(prev => ({ ...prev, ...profileMap }));
-
-    const connections: BusinessConnection[] = rows.map(r => {
-      const isOutgoing = r.sender_id === myId;
-      const otherId = isOutgoing ? r.receiver_id : r.sender_id;
-      const p = profileMap[otherId];
-      return {
-        id: r.id,
-        businessId: otherId,
-        name: p?.name || p?.shop_name || otherId,
-        shopName: p?.shop_name || '',
-        role: (p?.role as UserRole) || UserRole.RETAILER,
-        senderRole: (r.sender_role as UserRole) || UserRole.RETAILER,
-        receiverRole: (r.receiver_role as UserRole) || UserRole.RETAILER,
-        city: p?.city || '',
-        status: r.status === 'ACCEPTED' ? 'CONNECTED' : (r.status === 'REJECTED' ? 'REJECTED' : 'PENDING'),
-        direction: isOutgoing ? 'outgoing' : 'incoming',
-      };
-    });
-    setState(s => ({ ...s, connections }));
-  };
-
-  // ── Fetch recommendations ──
-  const loadRecommendations = useCallback(async () => {
-    setRecsLoading(true);
-    try {
-      const excludeIds = state.connections.map(c => c.businessId);
-      const recs = await connectionsServiceRecommend(
-        myId,
-        state.profile.city || '',
-        state.role || 'RETAILER',
-        excludeIds,
-        8
-      );
-      setRecommendations(recs);
-    } catch {
-      // ignore
-    } finally {
-      setRecsLoading(false);
-    }
-  }, [myId, state.connections, state.profile.city, state.role]);
-
-  useEffect(() => {
-    loadRecommendations();
-  }, [loadRecommendations]);
-
-  // Live search with debounce
-  useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (!searchQuery || searchQuery.length < 2) { setSearchResults([]); return; }
-    setSearchLoading(true);
-    searchTimerRef.current = setTimeout(async () => {
-      const results = await connectionsServiceSearch(searchQuery, myId);
-      setSearchResults(results);
-      setSearchLoading(false);
-    }, 350);
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
-  }, [searchQuery, myId]);
-
-  // Follow a business
-  const handleFollow = async (targetId: string, receiverRole: string) => {
-    setFollowLoading(targetId);
-    try {
-      await connectionsServiceFollow(myId, targetId, state.role || UserRole.RETAILER, receiverRole);
-      showToastMsg('Follow request sent!');
-      setSearchQuery('');
-      setSearchResults([]);
-    } catch (err: any) {
-      showToastMsg('Follow failed. Try again.');
-      console.warn('Follow failed:', err.message);
-    } finally {
-      setFollowLoading(null);
-    }
-  };
-
-  // Accept incoming follow
-  const handleAccept = async (connectionId: string) => {
-    try {
-      await connectionsServiceAccept(connectionId);
-      showToastMsg('Connection accepted!');
-    } catch (err: any) {
-      showToastMsg('Accept failed. Try again.');
-      console.warn('Accept failed:', err.message);
-    }
-  };
-
-  // Reject incoming follow
-  const handleReject = async (connectionId: string) => {
-    try {
-      await connectionsServiceReject(connectionId);
-      showToastMsg('Request declined.');
-    } catch (err: any) {
-      showToastMsg('Decline failed. Try again.');
-      console.warn('Reject failed:', err.message);
-    }
-  };
-
-  // Unfollow
-  const handleUnfollow = async (connectionId: string) => {
-    try {
-      await connectionsServiceUnfollow(connectionId);
-      showToastMsg('Unfollowed successfully.');
-    } catch (err: any) {
-      showToastMsg('Unfollow failed. Try again.');
-      console.warn('Unfollow failed:', err.message);
-    }
-  };
-
-  // Already-followed IDs set — memoized to avoid re-creating Set on every render
-  const followedIds = useMemo(() => new Set(state.connections.map(c => c.businessId)), [state.connections]);
-
-  // Filtered connections
-  const filteredConnections = useMemo(() => state.connections.filter(c => {
-    // Application of Request Type Filter
-    if (activeFilter === 'connected' && c.status !== 'CONNECTED') return false;
-    if (activeFilter === 'sent' && (c.direction !== 'outgoing' || c.status !== 'PENDING')) return false;
-    if (activeFilter === 'pending' && (c.direction !== 'incoming' || c.status !== 'PENDING')) return false;
-    // Application of Role Filter
-    if (roleFilter !== 'ALL' && c.role !== roleFilter) return false;
-    return true;
-  }), [state.connections, activeFilter, roleFilter]);
-
-  const filterTabs = useMemo(() => [
-    { key: 'all' as const, label: 'All', icon: Users, count: state.connections.length },
-    { key: 'connected' as const, label: 'Connected Users', icon: Link2, count: state.connections.filter(c => c.status === 'CONNECTED').length },
-    { key: 'sent' as const, label: 'Sent Requests', icon: UserPlus, count: state.connections.filter(c => c.direction === 'outgoing' && c.status === 'PENDING').length },
-    { key: 'pending' as const, label: 'Pending Requests', icon: Clock, count: state.connections.filter(c => c.direction === 'incoming' && c.status === 'PENDING').length },
-  ], [state.connections]);
-
-  const pendingIncoming = useMemo(() => state.connections.filter(c => c.direction === 'incoming' && c.status === 'PENDING'), [state.connections]);
-
-  // Extracted highlightText out of .map() — only depends on searchQuery
-  const highlightText = useCallback((text: string) => {
-    if (!searchQuery) return text;
-    const idx = text.toLowerCase().indexOf(searchQuery.toLowerCase());
-    if (idx === -1) return text;
-    return <>{text.slice(0, idx)}<span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded px-0.5">{text.slice(idx, idx + searchQuery.length)}</span>{text.slice(idx + searchQuery.length)}</>;
-  }, [searchQuery]);
-
-  const roleConfig = useCallback((role: UserRole) => {
-    if (role === UserRole.MANUFACTURER) return { bg: '#DBEAFE', bgDark: 'rgba(59,130,246,0.12)', border: '#BFDBFE', text: '#1E40AF', accent: '#3B82F6', emoji: '🏭', label: 'Manufacturer', gradient: 'linear-gradient(135deg, #3B82F6, #2563EB)' };
-    if (role === UserRole.DISTRIBUTOR) return { bg: '#FFEDD5', bgDark: 'rgba(249,115,22,0.12)', border: '#FED7AA', text: '#9A3412', accent: '#F97316', emoji: '🚛', label: 'Distributor', gradient: 'linear-gradient(135deg, #F97316, #EA580C)' };
-    return { bg: '#D1FAE5', bgDark: 'rgba(16,185,129,0.12)', border: '#A7F3D0', text: '#065F46', accent: '#10B981', emoji: '🏪', label: 'Retailer', gradient: 'linear-gradient(135deg, #10B981, #059669)' };
-  }, []);
-
-  // ── Skeleton Card ──
-  const SkeletonCard = () => (
-    <div className="rounded-2xl p-5 border border-slate-100 dark:border-slate-700/40 bg-white dark:bg-slate-800/50 animate-pulse">
-      <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-700 shrink-0" />
-        <div className="flex-1 space-y-2.5">
-          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded-lg w-3/4" />
-          <div className="h-3 bg-slate-100 dark:bg-slate-700/60 rounded-lg w-1/2" />
-        </div>
-        <div className="h-9 w-24 bg-slate-200 dark:bg-slate-700 rounded-xl" />
-      </div>
-    </div>
-  );
-
-  // ── Stats Row ──
-  const stats = useMemo(() => ({
-    total: state.connections.length,
-    connected: state.connections.filter(c => c.status === 'CONNECTED').length,
-    pending: state.connections.filter(c => c.status === 'PENDING').length,
-    outgoing: state.connections.filter(c => c.direction === 'outgoing').length,
-  }), [state.connections]);
-
-  return (
-    <div className="max-w-5xl mx-auto pb-24 sm:pb-8 animate-in fade-in duration-500">
-      {/* ═══════════════ STICKY HEADER ═══════════════ */}
-      <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-3 pb-6 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800/60 shadow-sm transition-colors duration-200">
-        <div className="relative">
-          {/* Row 1: Title + ID badge */}
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-md shrink-0"
-                style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
-                <Globe className="w-5.5 h-5.5 text-white" />
-              </div>
-              <div className="flex flex-col">
-                <h2 className="text-xl font-black text-slate-900 dark:text-white leading-tight">{t.connections}</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">Discover & grow your business network</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5">
-              {pendingIncoming.length > 0 && (
-                <button
-                  onClick={() => setActiveFilter('pending')}
-                  className="relative w-11 h-11 rounded-xl flex items-center justify-center bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 transition-all hover:scale-105 active:scale-95"
-                >
-                  <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                  <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1 flex items-center justify-center rounded-full text-[10px] font-black text-white"
-                    style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)', boxShadow: '0 2px 8px rgba(245,158,11,0.4)' }}>
-                    {pendingIncoming.length}
-                  </span>
-                </button>
-              )}
-              <button
-                onClick={() => setShowFilterDrawer(true)}
-                className="w-11 h-11 rounded-xl flex items-center justify-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm transition-all hover:border-indigo-300 dark:hover:border-indigo-500 hover:shadow-md active:scale-95"
-              >
-                <SlidersHorizontal className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-              </button>
-            </div>
-          </div>
-
-          {/* Row 2: Search Bar */}
-          <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500 group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400 transition-colors" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-2xl py-3.5 pl-12 pr-12 text-[15px] font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all"
-              placeholder="Search businesses by name, shop, or ID..."
-            />
-            {searchLoading && (
-              <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-500 animate-spin" />
-            )}
-            {searchQuery && !searchLoading && (
-              <button onClick={() => { setSearchQuery(''); setSearchResults([]); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-                <X className="w-3.5 h-3.5 text-slate-500 dark:text-slate-300" />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ═══════════════ SEARCH RESULTS DROPDOWN ═══════════════ */}
-      {searchQuery.length >= 2 && (
-        <div className="mb-6 -mt-1">
-          <div className="bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-xl overflow-hidden"
-            style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.08)' }}>
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700/40 flex items-center justify-between">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-                {searchLoading ? 'Searching...' : `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`}
-              </span>
-              {searchQuery && (
-                <span className="text-[11px] font-semibold text-slate-400">
-                  for "<span className="text-indigo-500 font-bold">{searchQuery}</span>"
-                </span>
-              )}
-            </div>
-            <div className="max-h-80 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-700/30">
-              {searchResults.map(biz => {
-                const alreadyFollowed = followedIds.has(biz.id);
-                const rc = roleConfig((biz.role as UserRole) || UserRole.RETAILER);
-                const displayName = biz.shop_name || biz.name || biz.id;
-                return (
-                  <div key={biz.id} className="flex items-center justify-between px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors duration-150">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-base shrink-0"
-                        style={{ background: rc.bgDark, border: `1.5px solid ${rc.border}` }}>
-                        {rc.emoji}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-[13px] text-slate-800 dark:text-white truncate">{highlightText(displayName)}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: rc.bgDark, color: rc.accent }}>
-                            {rc.label}
-                          </span>
-                          {biz.city && <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{biz.city}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    {alreadyFollowed ? (
-                      <span className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200 dark:border-emerald-700/30 shrink-0">
-                        <UserCheck className="w-3.5 h-3.5" /> Connected
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => handleFollow(biz.id, biz.role || UserRole.RETAILER)}
-                        disabled={followLoading === biz.id}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold text-white transition-all duration-200 hover:shadow-lg hover:scale-[1.02] active:scale-[0.97] disabled:opacity-50 shrink-0"
-                        style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', boxShadow: '0 4px 14px rgba(99,102,241,0.25)' }}
-                      >
-                        {followLoading === biz.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><UserPlus className="w-3.5 h-3.5" /> Follow</>}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {!searchLoading && searchResults.length === 0 && (
-              <div className="py-12 text-center">
-                <Search className="w-10 h-10 text-slate-200 dark:text-slate-600 mx-auto mb-3" />
-                <p className="font-bold text-sm text-slate-400">No businesses found</p>
-                <p className="text-[11px] text-slate-300 dark:text-slate-500 mt-0.5">Try a different name, shop, or ID</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ STATS ROW ═══════════════ */}
-      {!searchQuery && (
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          {[
-            { label: 'Connected', value: stats.connected, icon: Link2, color: '#10B981', bg: 'rgba(16,185,129,0.08)' },
-            { label: 'Following', value: stats.outgoing, icon: UserPlus, color: '#6366F1', bg: 'rgba(99,102,241,0.08)' },
-            { label: 'Pending', value: stats.pending, icon: Clock, color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
-          ].map(s => (
-            <div key={s.label} className="bg-white dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/40 text-center transition-all hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center mx-auto mb-2" style={{ background: s.bg }}>
-                <s.icon className="w-4.5 h-4.5" style={{ color: s.color }} />
-              </div>
-              <p className="text-2xl font-black text-slate-800 dark:text-white leading-none">{s.value}</p>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ═══════════════ PENDING INCOMING REQUESTS BANNER ═══════════════ */}
-      {!searchQuery && pendingIncoming.length > 0 && activeFilter !== 'pending' && (
-        <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 rounded-2xl p-4 border border-amber-200/60 dark:border-amber-700/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)' }}>
-                <UserPlus className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="font-bold text-sm text-slate-800 dark:text-white">{pendingIncoming.length} pending request{pendingIncoming.length > 1 ? 's' : ''}</p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Businesses want to connect with you</p>
-              </div>
-            </div>
-            <button onClick={() => setActiveFilter('pending')}
-              className="px-4 py-2 rounded-xl text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-800/20 border border-amber-200 dark:border-amber-700/40 transition-all hover:bg-amber-200/60 active:scale-95">
-              Review
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ RECOMMENDATIONS CAROUSEL ═══════════════ */}
-      {recommendations.length > 0 && !searchQuery && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              <h3 className="font-bold text-sm text-slate-700 dark:text-slate-200">Suggested for You</h3>
-              {state.profile.city && (
-                <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-0.5">
-                  <MapPin className="w-2.5 h-2.5" /> {state.profile.city}
-                </span>
-              )}
-            </div>
-            <button onClick={loadRecommendations} disabled={recsLoading}
-              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors flex items-center gap-1 active:scale-95">
-              <RefreshCw className={`w-3 h-3 ${recsLoading ? 'animate-spin' : ''}`} /> Refresh
-            </button>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-            {recommendations.map(biz => {
-              const alreadyFollowed = followedIds.has(biz.id);
-              const rc = roleConfig((biz.role as UserRole) || UserRole.RETAILER);
-              return (
-                <div key={biz.id} className="flex-shrink-0 w-[160px] bg-white dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/40 transition-all duration-200 hover:shadow-lg hover:border-slate-200 dark:hover:border-slate-600 hover:-translate-y-0.5 group">
-                  <div className="flex flex-col items-center text-center gap-2.5">
-                    <div className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-transform duration-200 group-hover:scale-110"
-                      style={{ background: rc.bgDark, border: `2px solid ${rc.border}` }}>
-                      {rc.emoji}
-                    </div>
-                    <div className="min-w-0 w-full">
-                      <p className="font-bold text-[12px] text-slate-800 dark:text-white truncate leading-tight">{biz.shop_name || biz.name || biz.id.slice(0, 12)}</p>
-                      <div className="flex items-center justify-center gap-1 mt-1">
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: rc.bgDark, color: rc.accent }}>
-                          {rc.label}
-                        </span>
-                      </div>
-                      {biz.city && (
-                        <p className="text-[9px] text-slate-400 font-semibold mt-1 flex items-center justify-center gap-0.5">
-                          <MapPin className="w-2 h-2" />{biz.city}
-                        </p>
-                      )}
-                    </div>
-                    {alreadyFollowed ? (
-                      <span className="flex items-center justify-center gap-1 w-full px-2 py-1.5 rounded-lg text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200/60 dark:border-emerald-700/30">
-                        <Check className="w-3 h-3" /> Following
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => handleFollow(biz.id, biz.role || UserRole.RETAILER)}
-                        disabled={followLoading === biz.id}
-                        className="w-full px-2 py-2 rounded-xl font-bold text-[10px] text-white transition-all duration-200 hover:shadow-md active:scale-[0.96] disabled:opacity-50"
-                        style={{ background: rc.gradient, boxShadow: `0 3px 12px ${rc.accent}33` }}
-                      >
-                        {followLoading === biz.id ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : <><Plus className="w-3 h-3 inline mr-0.5" /> Follow</>}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ FILTER TABS ═══════════════ */}
-      {!searchQuery && (
-        <div className="space-y-3 mb-5">
-          <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-2xl overflow-x-auto">
-            {filterTabs.map(tab => {
-              const isActive = activeFilter === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveFilter(tab.key)}
-                  className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all duration-200 whitespace-nowrap flex-1 justify-center ${
-                    isActive
-                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
-                >
-                  <tab.icon className="w-3.5 h-3.5" />
-                  {tab.label}
-                  {tab.count > 0 && (
-                    <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[9px] font-black ${
-                      isActive ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
-                    }`}>{tab.count}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center shrink-0 pr-2">Role:</span>
-            {['ALL', 'MANUFACTURER', 'DISTRIBUTOR', 'RETAILER'].map(role => {
-              const isActive = roleFilter === role;
-              return (
-                <button
-                  key={role}
-                  onClick={() => setRoleFilter(role as any)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-colors shrink-0 ${
-                    isActive
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {role === 'ALL' ? 'All Roles' : (role.charAt(0) + role.slice(1).toLowerCase())}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CONNECTIONS LIST ═══════════════ */}
-      {!searchQuery && (
-        <div className="space-y-3">
-          {/* Loading skeletons */}
-          {initialLoad && filteredConnections.length === 0 && (
-            <>{Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}</>
-          )}
-
-          {/* Connection Cards */}
-          {filteredConnections.map(c => {
-            const rc = roleConfig(c.role);
-            const isIncomingPending = c.direction === 'incoming' && c.status === 'PENDING';
-            const isExpanded = expandedCard === c.id;
-            const profile = connectionProfiles[c.businessId];
-            return (
-              <div key={c.id}
-                className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-700/40 transition-all duration-200 hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600 overflow-hidden"
-              >
-                {/* Main card row */}
-                <div className="flex items-center gap-3.5 p-4">
-                  {/* Avatar */}
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-lg shrink-0 transition-transform duration-200 hover:scale-105"
-                    style={{ background: rc.bgDark, border: `2px solid ${rc.border}` }}>
-                    {rc.emoji}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-bold text-[14px] text-slate-800 dark:text-white truncate leading-tight">{c.shopName || c.name}</p>
-                      {c.status === 'CONNECTED' && (
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: rc.bgDark, color: rc.accent }}>
-                        {rc.label}
-                      </span>
-                      {c.city && (
-                        <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-0.5">
-                          <MapPin className="w-2.5 h-2.5" />{c.city}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isIncomingPending ? (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleAccept(c.id)}
-                          className="flex items-center gap-1 px-3.5 py-2 rounded-xl text-[11px] font-bold text-white transition-all duration-200 hover:shadow-lg active:scale-[0.96]"
-                          style={{ background: 'linear-gradient(135deg, #10B981, #059669)', boxShadow: '0 3px 12px rgba(16,185,129,0.25)' }}
-                        >
-                          <Check className="w-3.5 h-3.5" /> Accept
-                        </button>
-                        <button
-                          onClick={() => handleReject(c.id)}
-                          className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/40 text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-95"
-                          title="Decline"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : c.status === 'CONNECTED' ? (
-                      <span className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200/60 dark:border-emerald-700/30">
-                        {c.direction === 'outgoing' ? <><UserCheck className="w-3.5 h-3.5" /> Following</> : <><Users className="w-3.5 h-3.5" /> Follower</>}
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/15 border border-amber-200/60 dark:border-amber-700/30">
-                        <Clock className="w-3.5 h-3.5" /> {c.direction === 'outgoing' ? 'Requested' : 'Pending'}
-                      </span>
-                    )}
-                    {/* 3-dot menu */}
-                    <button
-                      onClick={() => setExpandedCard(isExpanded ? null : c.id)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-all"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expandable details */}
-                <div className={`overflow-hidden transition-all duration-250 ease-in-out ${isExpanded ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <div className="px-4 pb-4 pt-3 border-t border-slate-100 dark:border-slate-700/30">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded" style={{ background: rc.bgDark, color: rc.accent, border: `1px solid ${rc.border}` }}>
-                        {rc.emoji} {rc.label}
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">{profile?.business_category || 'General Business'}</span>
-                    </div>
-                    <div className="flex flex-wrap flex-row items-center gap-x-6 gap-y-2 text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-                      <span className="flex items-center gap-1"><Fingerprint className="w-3 h-3 text-slate-400" /> {c.businessId.slice(0, 16)}...</span>
-                      {profile?.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {profile.email}</span>}
-                      {profile?.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {profile.phone}</span>}
-                    </div>
-                    {c.status === 'CONNECTED' && c.direction === 'outgoing' && (
-                      <button
-                        onClick={() => handleUnfollow(c.id)}
-                        className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/10 hover:bg-rose-100 dark:hover:bg-rose-900/20 border border-rose-200 dark:border-rose-700/30 transition-all active:scale-95"
-                      >
-                        <X className="w-3 h-3" /> Unfollow
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* ═══════════════ EMPTY STATE ═══════════════ */}
-          {!initialLoad && filteredConnections.length === 0 && (
-            <div className="text-center py-20">
-              <div className="w-20 h-20 rounded-3xl mx-auto mb-5 flex items-center justify-center"
-                style={{ background: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' }}>
-                {activeFilter === 'pending' ? <Clock className="w-9 h-9 text-indigo-400" /> : <Users className="w-9 h-9 text-indigo-400" />}
-              </div>
-              <h3 className="font-black text-lg text-slate-800 dark:text-white">
-                {activeFilter === 'all' ? 'No connections yet' : activeFilter === 'pending' ? 'No pending requests' : activeFilter === 'following' ? 'Not following anyone' : 'No followers yet'}
-              </h3>
-              <p className="text-sm text-slate-400 mt-1.5 max-w-xs mx-auto">
-                {activeFilter === 'all'
-                  ? 'Use the search bar above to find and follow businesses in your area'
-                  : 'Check back later or search for new businesses to connect with'}
-              </p>
-              {activeFilter !== 'all' && (
-                <button onClick={() => setActiveFilter('all')}
-                  className="mt-4 px-5 py-2.5 rounded-xl text-[11px] font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/15 border border-indigo-200 dark:border-indigo-700/30 hover:bg-indigo-100 transition-all active:scale-95">
-                  View all connections
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════ YOUR ID FOOTER ═══════════════ */}
-      {!searchQuery && (
-        <div className="mt-8 text-center">
-          <p className="text-[10px] font-bold text-slate-300 dark:text-slate-600 uppercase tracking-widest">Your Business ID</p>
-          <p className="text-xs font-black text-slate-500 dark:text-slate-400 mt-1 font-mono">{state.profile.id}</p>
-        </div>
-      )}
-
-      {/* ═══════════════ FILTER DRAWER ═══════════════ */}
-      {showFilterDrawer && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setShowFilterDrawer(false)}>
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" style={{ animation: 'fadeIn 200ms ease-out' }} />
-          <div
-            className="relative w-80 max-w-[85vw] h-full bg-white dark:bg-slate-900 shadow-2xl flex flex-col"
-            style={{ animation: 'slideInRight 250ms ease-out', boxShadow: '-20px 0 60px rgba(0,0,0,0.1)' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-black text-base text-slate-800 dark:text-white">Filters</h3>
-              <button onClick={() => setShowFilterDrawer(false)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 p-5 space-y-6 overflow-y-auto">
-              <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Connection Status</p>
-                <div className="space-y-1.5">
-                  {filterTabs.map(tab => (
-                    <button
-                      key={tab.key}
-                      onClick={() => { setActiveFilter(tab.key); setShowFilterDrawer(false); }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
-                        activeFilter === tab.key
-                          ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700/40'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-transparent'
-                      }`}
-                    >
-                      <tab.icon className="w-4 h-4" />
-                      {tab.label}
-                      <span className="ml-auto text-[11px] font-bold text-slate-400">{tab.count}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Quick Actions</p>
-                <button
-                  onClick={() => { loadRecommendations(); setShowFilterDrawer(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all border border-transparent"
-                >
-                  <RefreshCw className="w-4 h-4" /> Refresh Suggestions
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ NEARBY STORES ═══════════════ */}
-      <div className="mt-6">
-        <NearestStoresModule t={t} />
-      </div>
-
-      {/* ═══════════════ TOAST ═══════════════ */}
-      {toast && (
-        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-bold shadow-2xl flex items-center gap-2"
-          style={{ animation: 'slideUp 250ms ease-out', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-          <CheckCircle className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
-          {toast}
-        </div>
-      )}
-
-      {/* ═══════════════ KEYFRAME ANIMATIONS ═══════════════ */}
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
-        @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
     </div>
   );
@@ -6232,7 +5697,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 dark:text-white font-display">{t.payments}</h2>
+          <h2 className="text-2xl font-black text-slate-900 text-slate-900 dark:text-white font-display">{t.payments}</h2>
           <p className="text-slate-400 text-xs font-semibold mt-0.5">Track, manage &amp; export all transactions</p>
         </div>
         <div className="flex items-center gap-2">
@@ -6329,7 +5794,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
             </div>
             <input type="number" min="0" value={budgetInput} onChange={e => setBudgetInput(e.target.value)}
               placeholder="Enter amount"
-              className="flex-1 min-w-[140px] h-10 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
+              className="flex-1 min-w-[140px] h-10 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
             <button onClick={applyBudget}
               className="h-10 px-5 rounded-xl text-xs font-black text-white transition-opacity hover:opacity-90 active:scale-95"
               style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}>
@@ -6352,7 +5817,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input type="text" placeholder="Search party or note..." value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full h-12 pl-11 pr-4 text-sm font-semibold bg-transparent dark:text-white outline-none placeholder:text-slate-400 border-r border-slate-100 dark:border-slate-700/50" />
+              className="w-full h-12 pl-11 pr-4 text-sm font-semibold bg-transparent text-slate-900 dark:text-white outline-none placeholder:text-slate-400 border-r border-slate-100 dark:border-slate-700/50" />
           </div>
           <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as any)}
             className="h-12 px-3 text-xs font-bold bg-transparent dark:bg-transparent dark:text-slate-300 text-slate-600 outline-none cursor-pointer border-r border-slate-100 dark:border-slate-700/50">
@@ -6399,7 +5864,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                 </span>
                 <div>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="text-sm font-black text-slate-800 dark:text-white truncate">{p.party}</p>
+                    <p className="text-sm font-black text-slate-800 text-slate-900 dark:text-white truncate">{p.party}</p>
                     {(p.source === 'expense' || (!p.source && (p.note || '').includes('Expense:'))) && (
                       <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md shrink-0" style={{ background: 'rgba(244,63,94,0.1)', color: '#e11d48' }}>EXPENSE</span>
                     )}
@@ -6444,7 +5909,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-black text-slate-800 dark:text-white truncate">{p.party}</p>
+                    <p className="text-sm font-black text-slate-800 text-slate-900 dark:text-white truncate">{p.party}</p>
                     <span className={`text-sm font-black shrink-0 ${p.type === 'RECEIVED' ? 'text-emerald-600' : 'text-rose-500'}`}>
                       {p.type === 'RECEIVED' ? '+' : '-'}₹{p.amount.toLocaleString('en-IN')}
                     </span>
@@ -6480,7 +5945,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }}>
           <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">{editId ? 'Edit Payment' : 'New Payment'}</h3>
+              <h3 className="text-lg font-black text-slate-900 text-slate-900 dark:text-white">{editId ? 'Edit Payment' : 'New Payment'}</h3>
               <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 transition-colors">
                 <X className="w-4 h-4 text-slate-500" />
               </button>
@@ -6512,14 +5977,14 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Party Name</label>
                 <input value={form.party} onChange={e => setForm(f => ({ ...f, party: e.target.value }))}
                   placeholder="Customer / Vendor name"
-                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
+                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
               </div>
               {/* Amount */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Amount (₹)</label>
                 <input type="number" min="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
                   placeholder="0"
-                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
+                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
               </div>
               {/* Method */}
               <div>
@@ -6555,14 +6020,14 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Date</label>
                 <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
+                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
               </div>
               {/* Note */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Note <span className="normal-case font-semibold">(optional)</span></label>
                 <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
                   placeholder="Invoice #, order ref, etc."
-                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
+                  className="w-full h-11 px-4 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-colors" />
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700 flex gap-3">
@@ -6588,7 +6053,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
               <Trash2 className="w-6 h-6 text-rose-500" />
             </div>
             <div className="text-center">
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">Delete Payment?</h3>
+              <h3 className="text-lg font-black text-slate-900 text-slate-900 dark:text-white">Delete Payment?</h3>
               <p className="text-sm text-slate-400 font-semibold mt-1">
                 ₹{payments.find(p => p.id === deleteId)?.amount.toLocaleString('en-IN')} &mdash; {payments.find(p => p.id === deleteId)?.party}
               </p>
@@ -6611,47 +6076,7 @@ const PaymentsModule: React.FC<{ state: AppState, setState: React.Dispatch<React
   );
 };
 
-const NEARBY_STORES = [
-  { name: 'Rahul General Store', distance: '0.5 km', type: 'Retailer' },
-  { name: 'Mumbai Electronics', distance: '1.2 km', type: 'Retailer' },
-  { name: 'Ganesh Wholesalers', distance: '2.5 km', type: 'Distributor' }
-] as const;
 
-const NearestStoresModule: React.FC<{ t: any }> = ({ t }) => {
-
-  return (
-    <div className="card-pro bg-white dark:bg-slate-800/70 rounded-3xl p-8 space-y-6 border border-slate-100 dark:border-slate-700/60">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-2xl text-indigo-600 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)' }}>
-          <MapPin className="w-5 h-5" />
-        </div>
-        <div>
-          <h3 className="text-lg font-black text-slate-800 dark:text-white">{t.nearestStore}</h3>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nearby businesses</p>
-        </div>
-      </div>
-      <div className="space-y-3">
-        {NEARBY_STORES.map(s => (
-          <div key={s.name} className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700/50 last:border-0">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center">
-                <Store className="w-5 h-5 text-slate-400" />
-              </div>
-              <div>
-                <p className="font-bold text-sm text-slate-800 dark:text-white">{s.name}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{s.type}</p>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-black text-indigo-600">{s.distance}</p>
-              <Button variant="ghost" className="p-0 h-auto text-[10px] font-black uppercase tracking-widest text-slate-400">Navigate <Navigation className="w-3 h-3" /></Button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
 
 const DistributorDashboard: React.FC<{ state: AppState, t: any }> = ({ state, t }) => (
   <div className="space-y-8">
@@ -6680,7 +6105,7 @@ const LandingFlow: React.FC<{ onComplete: (role: UserRole) => void, t: any, stat
               style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}>
               <Package className="text-white w-8 h-8" />
             </div>
-            <h1 className="text-4xl font-black text-slate-900 dark:text-white font-display mb-2" style={{ letterSpacing: '-0.03em' }}>Vyaparika</h1>
+            <h1 className="text-4xl font-black text-slate-900 text-slate-900 dark:text-white font-display mb-2" style={{ letterSpacing: '-0.03em' }}>Vyaparika</h1>
             <p className="text-indigo-600 font-bold text-base">Apka Vyapar, Apka Control</p>
             <p className="text-slate-400 font-semibold uppercase tracking-[0.2em] text-[10px] mt-0.5">Select Your Language</p>
           </div>
@@ -6746,7 +6171,7 @@ const LandingFlow: React.FC<{ onComplete: (role: UserRole) => void, t: any, stat
             style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15))' }}>
             <User className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />
           </div>
-          <h2 className="text-3xl font-black text-slate-900 dark:text-white font-display mb-2" style={{ letterSpacing: '-0.02em' }}>{t.signup}</h2>
+          <h2 className="text-3xl font-black text-slate-900 text-slate-900 dark:text-white font-display mb-2" style={{ letterSpacing: '-0.02em' }}>{t.signup}</h2>
           <p className="text-slate-500 dark:text-slate-400 font-medium text-sm">Choose your role to personalize your experience.</p>
         </div>
 

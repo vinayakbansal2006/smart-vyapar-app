@@ -1,5 +1,15 @@
+/**
+ * =========================================================================
+ * SKU Velocity & Inventory Health Page (SkuVelocityPage.tsx)
+ * -------------------------------------------------------------------------
+ * Connects directly to the skuStore state to list products. Calculates 
+ * velocity of item sales, estimates stockout risk timing, and creates
+ * vendor/manufacturer alerts when an item runs out unexpectedly soon.
+ * Offers filtering, sorting, and manual status overrides.
+ * =========================================================================
+ */
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Filter, Search, Share2, Check } from 'lucide-react';
+import { ChevronDown, Filter, Search, Share2, Check, Plus } from 'lucide-react';
 import { postManufacturerAlert, type SkuVelocityItem } from '../../services/skuVelocityService';
 import {
   createAlertPayload,
@@ -15,6 +25,7 @@ import {
 
 interface SkuVelocityPageProps {
   onAddSku: () => void;
+  inventory?: any[];
 }
 
 const COLORS = {
@@ -63,7 +74,7 @@ function rowActionDescription(action: string, sku: SkuVelocityItem): string {
   return `See kiranas and allocation detail for ${sku.name}.`;
 }
 
-const SkuVelocityPage: React.FC<SkuVelocityPageProps> = ({ onAddSku }) => {
+const SkuVelocityPage: React.FC<SkuVelocityPageProps> = ({ onAddSku, inventory }) => {
   const {
     skus,
     meta,
@@ -93,15 +104,15 @@ const SkuVelocityPage: React.FC<SkuVelocityPageProps> = ({ onAddSku }) => {
   });
 
   useEffect(() => {
-    loadSkus();
-  }, [loadSkus]);
+    loadSkus(inventory);
+  }, [loadSkus, inventory]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      loadSkus();
+      loadSkus(inventory);
     }, 4 * 60 * 60 * 1000);
     return () => window.clearInterval(timer);
-  }, [loadSkus]);
+  }, [loadSkus, inventory]);
 
   const categories = useMemo(() => getCategoryOptions(skus), [skus]);
   const visibleSkus = useMemo(() => filterAndSortSkus(skus, filters), [skus, filters]);
@@ -210,6 +221,11 @@ const SkuVelocityPage: React.FC<SkuVelocityPageProps> = ({ onAddSku }) => {
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setFilterSheetOpen(true)} style={iconButtonStyle}><Filter size={16} color={COLORS.textPrimary} /></button>
           <button onClick={() => setShareSheetOpen(true)} style={iconButtonStyle}><Share2 size={16} color={COLORS.textPrimary} /></button>
+          {skus.length > 0 && (
+            <button onClick={onAddSku} style={{...iconButtonStyle, background: COLORS.accent, borderColor: COLORS.accent}}>
+              <Plus size={16} color={COLORS.onAccent} />
+            </button>
+          )}
         </div>
       </div>
 

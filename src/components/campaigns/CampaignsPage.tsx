@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChevronDown, Plus, X } from 'lucide-react';
 import { fetchSkuVelocity, type SkuVelocityItem } from '../../services/skuVelocityService';
+import type { SKU } from '../../types';
 import {
   useCampaignStore,
   elapsedDaysSince,
@@ -68,7 +69,7 @@ function money(value: number): string {
   return `₹${value.toLocaleString('en-IN')}`;
 }
 
-const CampaignsPage: React.FC = () => {
+const CampaignsPage: React.FC<{ localInventory?: SKU[] }> = ({ localInventory = [] }) => {
   const formRef = useRef<HTMLDivElement | null>(null);
   const pinInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -103,8 +104,8 @@ const CampaignsPage: React.FC = () => {
 
   useEffect(() => {
     loadCampaigns();
-    fetchSkuVelocity().then((data) => setSkuOptions(data.skus));
-  }, [loadCampaigns]);
+    fetchSkuVelocity({}, localInventory).then((data) => setSkuOptions(data.skus));
+  }, [loadCampaigns, localInventory]);
 
   useEffect(() => {
     if (!selectedCampaign) return;
@@ -303,11 +304,11 @@ const CampaignsPage: React.FC = () => {
         <p style={{ margin: '0 0 8px 0', fontSize: 14, fontWeight: 600, color: COLORS.textPrimary }}>Create new campaign</p>
         <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 16 }}>
           <FieldLabel label="Select SKU" />
-          <button style={{ ...inputStyle, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={() => setSkuSheetOpen(true)}>
+          <button style={{ ...inputStyle, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: skuOptions.length === 0 ? 0.65 : 1 }} onClick={() => skuOptions.length > 0 && setSkuSheetOpen(true)}>
             <span style={{ color: selectedSku ? COLORS.textPrimary : COLORS.textSecondary }}>
               {selectedSku
                 ? `${selectedSku.name} · ${selectedSku.status} · ${selectedSku.stockoutDays} days left`
-                : 'Choose a SKU'}
+                : skuOptions.length === 0 ? 'No SKU available. Add items to inventory first.' : 'Choose a SKU'}
             </span>
             <ChevronDown size={14} color={COLORS.textSecondary} />
           </button>

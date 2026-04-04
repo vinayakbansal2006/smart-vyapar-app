@@ -1,8 +1,11 @@
 /**
- * Analytics Service
- * ─────────────────
- * Provides business intelligence & KPI calculations.
- * Aggregates data from inventory, payments, and expenses for dashboard insights.
+ * =========================================================================
+ * Analytics Service (analyticsService.ts)
+ * -------------------------------------------------------------------------
+ * Provides business intelligence & KPI calculations for dashboards.
+ * Methods in this file aggregate data from inventory, payments,
+ * and expenses tables within Supabase to generate insights and summaries.
+ * =========================================================================
  */
 
 import { supabase } from '../backend/supabase';
